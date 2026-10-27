@@ -20,4 +20,13 @@ exe = EXE(
     name="DICOM3D",
     console=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="DICOM3D")
+# aceeasi aplicatie, dar cu consola: afiseaza erorile de pornire
+exe_debug = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="DICOM3D-debug",
+    console=True,
+)
+coll = COLLECT(exe, exe_debug, a.binaries, a.datas, name="DICOM3D")
