@@ -312,9 +312,16 @@ class HounsfieldRuler(QWidget):
         return {"hist0": hist0, "hist_w": hist_w, "band1": band1, "bracket": bracket,
                 "swatch": bracket + 8, "text": bracket + 20}
 
+    def _anchor(self, lo: int, hi: int) -> float:
+        """Unde sta eticheta unui tesut pe scala: la mijlocul intervalului sau, pentru
+        intervalele deschise in sus (os, piele), acolo unde incepe tesutul."""
+        if hi >= 3000:
+            return self._y(lo)
+        return (self._y(lo) + self._y(hi)) / 2
+
     def _label_rows(self) -> list[tuple[str, float, float, float]]:
         """(nume, y eticheta, y sus, y jos), cu etichetele departate cat sa nu se suprapuna."""
-        rows = sorted(((n, (self._y(lo) + self._y(hi)) / 2, self._y(hi), self._y(lo))
+        rows = sorted(((n, self._anchor(lo, hi), self._y(hi), self._y(lo))
                        for n, lo, hi in self._presets), key=lambda r: r[1])
         ys = [r[1] for r in rows]
         for i in range(1, len(ys)):

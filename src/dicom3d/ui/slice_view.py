@@ -172,6 +172,10 @@ class SliceCanvas(QWidget):
             align = Qt.AlignLeft if i == 0 else Qt.AlignHCenter
             rect = QRectF(x - (0 if i == 0 else 30), y0 + 11, 60 if i == 0 else 60, 14)
             p.drawText(rect, align | Qt.AlignTop, text)
+        for mm in range(labeled, int(height_mm) + 1, labeled):  # 0 e deja pe rigla de jos
+            y = target.top() + mm * ppm
+            p.drawText(QRectF(x0 - 9 - 3 - 24, y - 7, 24, 14), Qt.AlignRight | Qt.AlignVCenter,
+                       f"{mm // 10}")
         p.setRenderHint(QPainter.Antialiasing)
 
     def _paint_scrubber(self, p: QPainter, target: QRectF):

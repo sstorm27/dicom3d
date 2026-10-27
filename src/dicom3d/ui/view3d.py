@@ -67,7 +67,7 @@ class View3D(QWidget):
 
         self._actor: vtk.vtkActor | None = None
         self._color = theme.TISSUE_COLORS["Os"]
-        self._add_orientation_axes()
+        self._add_orientation_cube()
 
         self._cam_from = self._cam_to = None
         self._cam_anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=280,
@@ -199,41 +199,47 @@ class View3D(QWidget):
         self._apply_camera(pos, focal, _slerp(u0, u1, t))
         self.render()
 
-    def _add_orientation_axes(self):
-        """Indicatorul de orientare din coltul din dreapta sus: axe gri, litere lizibile."""
-        axes = vtk.vtkAxesActor()
-        axes.SetXAxisLabelText("L")
-        axes.SetYAxisLabelText("P")
-        axes.SetZAxisLabelText("S")
-        axes.SetShaftTypeToLine()
-        axes.SetTotalLength(1.0, 1.0, 1.0)
-        axes.SetConeRadius(0.3)
-        line, text_color = _rgb(theme.OVERLAY_TEXT), _rgb(theme.TEXT)
-        for shaft, tip, caption in (
-            (axes.GetXAxisShaftProperty(), axes.GetXAxisTipProperty(), axes.GetXAxisCaptionActor2D()),
-            (axes.GetYAxisShaftProperty(), axes.GetYAxisTipProperty(), axes.GetYAxisCaptionActor2D()),
-            (axes.GetZAxisShaftProperty(), axes.GetZAxisTipProperty(), axes.GetZAxisCaptionActor2D()),
+    def _add_orientation_cube(self):
+        """Cubul de orientare din coltul din dreapta sus, ca la statiile de radiologie.
+
+        Fiecare fata are litera ei (sistemul LPS al pacientului), asa ca literele nu se
+        suprapun niciodata, oricum s-ar roti camera.
+        """
+        cube = vtk.vtkAnnotatedCubeActor()
+        for setter, letter in (
+            (cube.SetXPlusFaceText, "L"), (cube.SetXMinusFaceText, "R"),
+            (cube.SetYPlusFaceText, "P"), (cube.SetYMinusFaceText, "A"),
+            (cube.SetZPlusFaceText, "S"), (cube.SetZMinusFaceText, "I"),
         ):
-            shaft.SetColor(*line)
-            shaft.SetLineWidth(1.5)
-            tip.SetColor(*line)
-            caption.GetTextActor().SetTextScaleModeToNone()  # litere de marime fixa, nu minuscule
-            text = caption.GetCaptionTextProperty()
-            text.SetColor(*text_color)
-            text.SetFontSize(15)
-            text.ItalicOff()
-            text.BoldOn()
-            text.ShadowOff()
-            text.SetFontFamilyToArial()
+            setter(letter)
+        cube.SetFaceTextScale(0.55)
+        cube.SetXFaceTextRotation(0)
+        cube.SetYFaceTextRotation(0)
+        cube.SetZFaceTextRotation(90)
+        cube.SetTextEdgesVisibility(False)
+        cube.SetCubeVisibility(True)
+        face = cube.GetCubeProperty()
+        face.SetColor(*_rgb(theme.LINE_STRONG))
+        face.SetAmbient(0.55)
+        face.SetDiffuse(0.6)
+        face.SetSpecular(0.0)
+        for prop in (cube.GetXPlusFaceProperty(), cube.GetXMinusFaceProperty(),
+                     cube.GetYPlusFaceProperty(), cube.GetYMinusFaceProperty(),
+                     cube.GetZPlusFaceProperty(), cube.GetZMinusFaceProperty()):
+            prop.SetColor(*_rgb(theme.TEXT))
+            prop.SetAmbient(1.0)
+            prop.SetDiffuse(0.0)
+            prop.SetInterpolationToFlat()
         self._marker = vtk.vtkOrientationMarkerWidget()
-        self._marker.SetOrientationMarker(axes)
+        self._marker.SetOrientationMarker(cube)
         self._marker.SetInteractor(self.interactor)
+        self._marker.SetZoom(0.8)  # loc pentru colturile cubului cand camera e rotita
         self._place_marker()
         self._marker.SetEnabled(1)
         self._marker.InteractiveOff()
         self._marker.GetOrientationMarker().SetVisibility(False)  # apare odata cu modelul
 
-    MARKER_PX = 116  # latura indicatorului de orientare, in pixeli, indiferent de marimea vederii
+    MARKER_PX = 88  # latura indicatorului de orientare, in pixeli, indiferent de marimea vederii
 
     def _place_marker(self):
         w, h = max(self.width(), 1), max(self.height(), 1)

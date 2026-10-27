@@ -32,7 +32,7 @@ from vtkmodules.vtkFiltersGeneral import vtkTransformFilter
 from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
 from vtkmodules.vtkInteractionWidgets import vtkOrientationMarkerWidget
 from vtkmodules.vtkIOPLY import vtkPLYWriter
-from vtkmodules.vtkRenderingAnnotation import vtkAxesActor
+from vtkmodules.vtkRenderingAnnotation import vtkAnnotatedCubeActor
 from vtkmodules.vtkRenderingCore import (
     vtkActor,
     vtkLightKit,

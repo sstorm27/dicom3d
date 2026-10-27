@@ -79,6 +79,9 @@ def test_ruler_labels_do_not_overlap_and_click_picks_preset(app):
         ys = sorted(y for _, y, _, _ in r._label_rows())
         assert all(b - a >= r.ROW - 0.01 for a, b in zip(ys, ys[1:]))
         assert ys[0] >= 0 and ys[-1] <= height
+        # pielea (−400…3000 HU) se eticheteaza unde incepe, nu la mijlocul intervalului
+        skin_y = next(y for n, y, _, _ in r._label_rows() if n == "Piele")
+        assert skin_y > r._y(500)
     picked = []
     r.presetActivated.connect(picked.append)
     name, y, _, _ = r._label_rows()[0]
