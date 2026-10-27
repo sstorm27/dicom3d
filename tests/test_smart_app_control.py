@@ -30,9 +30,10 @@ print("\\n".join(m for m in sys.modules if m.startswith("vtkmodules.")))
 
 
 def test_blocked_vtk_modules_are_not_imported(tmp_path):
-    out = subprocess.run(
-        [sys.executable, "-c", SCRIPT, str(tmp_path)],
-        capture_output=True, text=True, check=True,
-    ).stdout.split()
+    proc = subprocess.run(
+        [sys.executable, "-c", SCRIPT, str(tmp_path)], capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout.split()
     assert "vtkmodules.vtkRenderingOpenGL2" in out  # verificam ca lista e reala
     assert not set(BLOCKED) & set(out)
