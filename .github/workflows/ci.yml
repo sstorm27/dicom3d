@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - run: pyinstaller packaging/dicom3d.spec --noconfirm
+      - run: pyinstaller dicom3d.spec --noconfirm
         working-directory: packaging
       - uses: actions/upload-artifact@v4
         with:
