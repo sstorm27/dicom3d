@@ -18,6 +18,21 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - export STL (binar), OBJ, PLY; statistici (triunghiuri, volum in ml, suprafata)
 - interfata in linie de comanda pentru procesare in lot
 
+## Interfata
+
+Tema intunecata, ca la statiile de radiologie, cu un singur accent cian (fonturi IBM Plex,
+incluse in aplicatie). Panoul din stanga urmeaza pasii lucrului: serie, segmentare, model.
+
+- folderul DICOM se poate trage direct in fereastra (sau Ctrl+O)
+- tesutul se alege din butoane colorate; aceeasi culoare marcheaza masca pe felie si modelul 3D
+- pragul se trage direct pe histograma HU a seriei sau se scrie in campuri
+- felia are informatiile in colturi (felia, fereastra W/L, HU sub cursor, orientarea A/P/R/L);
+  rotita mouse-ului schimba felia
+- vederi 3D standard (anterior, lateral, superior) cu rotire lina, captura PNG
+- avertisment cand modelul afisat nu mai corespunde setarilor
+- fereastra ingusta: viewport-urile trec unul sub altul
+- scurtaturi: Ctrl+O deschide, Ctrl+G genereaza, Ctrl+E exporta, R reseteaza camera
+
 ## Instalare (dezvoltare)
 
 Necesita Python 3.10+.
@@ -67,7 +82,7 @@ src/dicom3d/
   segmentation/threshold.py segmentare prin prag + post-procesare
   mesh/surface.py           Marching Cubes, netezire, decimare, export
   pipeline.py               volum -> masca -> mesh
-  ui/                       interfata PySide6 + VTK
+  ui/                       interfata PySide6 + VTK (tema in ui/theme.py, componente in ui/widgets.py)
   cli.py                    linie de comanda
 scripts/make_phantom.py     generator de serie CT sintetica
 packaging/                  PyInstaller

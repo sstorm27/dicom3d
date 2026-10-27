@@ -102,11 +102,8 @@ class Playtest:
         self.log(f"    captura: {path.name}")
 
     def choose_preset(self, name: str):
-        """Ca un click in lista: activated se emite doar la alegerea utilizatorului."""
-        combo = self.w.preset_combo
-        idx = combo.findText(name)
-        combo.setCurrentIndex(idx)
-        combo.activated.emit(idx)
+        """Ca un click pe tesut: activated se emite la fiecare alegere a utilizatorului."""
+        self.w.tissue_chips._buttons[name].click()
 
     def build(self, label: str) -> float | None:
         w = self.w
@@ -145,14 +142,14 @@ class Playtest:
         if not self.wait(lambda: w.volume is not None or self.dialogs, 300) or w.volume is None:
             self.log("  ESEC: seria nu s-a incarcat")
             return self.finish()
-        self.log(f"  OK in {time.time() - t0:.1f} s: " + w.info_label.text().replace("\n", " | "))
+        self.log(f"  OK in {time.time() - t0:.1f} s: " + w.series_summary())
         self.screenshot("01_incarcat")
 
         self.log("2. Ferestre 2D si felii")
         for name in WINDOWS:
-            w.window_combo.setCurrentText(name)
+            w.window_seg.setCurrentText(name)
             self.pump(0.1)
-        w.window_combo.setCurrentText("Os")
+        w.window_seg.setCurrentText("Os")
         for v in (0, w.volume.array.shape[0] - 1, w.volume.array.shape[0] // 2):
             w.slice_view.slider.setValue(v)
             self.pump(0.1)

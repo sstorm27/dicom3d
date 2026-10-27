@@ -8,6 +8,7 @@ a = Analysis(
     ["launcher.py"],
     pathex=["../src"],
     hiddenimports=hidden,
+    datas=[("../src/dicom3d/ui/assets", "dicom3d/ui/assets")],  # fonturile interfetei
     excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
     noarchive=False,
 )

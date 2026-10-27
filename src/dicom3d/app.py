@@ -40,11 +40,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from PySide6.QtWidgets import QApplication
 
+        from dicom3d.ui import theme
+        from dicom3d.ui.icons import app_icon
         from dicom3d.ui.main_window import MainWindow
 
         argv = sys.argv if argv is None else argv
         app = QApplication(argv)
         app.setApplicationName("DICOM3D")
+        theme.apply(app)
+        app.setWindowIcon(app_icon())
         if len(argv) > 1 and argv[1] == "--playtest":  # --playtest <folder_dicom> <folder_iesire>
             from dicom3d.playtest import run as run_playtest
 

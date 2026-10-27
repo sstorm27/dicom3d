@@ -35,6 +35,7 @@ from vtkmodules.vtkIOPLY import vtkPLYWriter
 from vtkmodules.vtkRenderingAnnotation import vtkAxesActor
 from vtkmodules.vtkRenderingCore import (
     vtkActor,
+    vtkLightKit,
     vtkPolyDataMapper,
     vtkRenderer,
     vtkWindowToImageFilter,

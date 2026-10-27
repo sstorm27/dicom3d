@@ -27,5 +27,8 @@ dicom3d = "dicom3d.app:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"dicom3d.ui" = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
