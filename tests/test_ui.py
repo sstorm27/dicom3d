@@ -39,30 +39,59 @@ def test_reselecting_tissue_restores_thresholds(app):
     from dicom3d.ui.main_window import MainWindow
 
     w = MainWindow()
-    w.tissue_chips._buttons["Plamani (aer)"].click()
+    w.ruler.activate("Plamani (aer)")
     assert (w.lower_spin.value(), w.upper_spin.value()) == (-1000, -400)
     assert w.outside_check.isChecked()
+    assert w.window_seg.currentText() == "Plămâni"  # fereastra CT urmeaza tesutul
     w.lower_spin.setValue(-900)
-    w.tissue_chips._buttons["Plamani (aer)"].click()  # acelasi tesut, ales din nou
+    w.ruler.activate("Plamani (aer)")  # acelasi tesut, ales din nou
     p = PRESETS["Plamani (aer)"]
     assert (w.lower_spin.value(), w.upper_spin.value()) == (p.lower, p.upper)
     w.view3d.close_vtk()
 
 
-def test_histogram_drag_keeps_lower_below_upper(app):
+def test_ruler_drag_keeps_lower_below_upper(app):
     import numpy as np
 
-    from dicom3d.ui.widgets import HistogramRange
+    from dicom3d.segmentation.threshold import PRESETS
+    from dicom3d.ui.widgets import HounsfieldRuler
 
-    h = HistogramRange()
-    h.resize(300, 84)
-    h.set_values(np.linspace(-1024, 3000, 10_000))
-    h.set_range(-100, 200)
+    r = HounsfieldRuler(PRESETS)
+    r.resize(248, 300)
+    r.set_values(np.linspace(-1024, 3000, 10_000))
+    r.set_range(-100, 200)
     edits = []
-    h.rangeEdited.connect(lambda lo, hi: edits.append((lo, hi)))
-    h._drag = 0
-    h._drag_to(h._x(1500))  # manerul de jos tras peste cel de sus
+    r.rangeEdited.connect(lambda lo, hi: edits.append((lo, hi)))
+    r._drag = 0
+    r._drag_to(r._y(1500))  # manerul de jos tras peste cel de sus
     assert edits[-1][0] <= edits[-1][1] == 200
+
+
+def test_ruler_labels_do_not_overlap_and_click_picks_preset(app):
+    from PySide6.QtCore import QPointF
+
+    from dicom3d.segmentation.threshold import PRESETS
+    from dicom3d.ui.widgets import HounsfieldRuler
+
+    r = HounsfieldRuler(PRESETS)
+    for height in (170, 300, 600):
+        r.resize(248, height)
+        ys = sorted(y for _, y, _, _ in r._label_rows())
+        assert all(b - a >= r.ROW - 0.01 for a, b in zip(ys, ys[1:]))
+        assert ys[0] >= 0 and ys[-1] <= height
+    picked = []
+    r.presetActivated.connect(picked.append)
+    name, y, _, _ = r._label_rows()[0]
+    assert r._preset_at(QPointF(r._cols()["text"] + 5, y)) == name
+
+
+def test_window_fits_small_screen(app):
+    from dicom3d.ui.main_window import MainWindow
+
+    w = MainWindow()
+    avail = w.screen().availableGeometry()
+    assert w.width() <= avail.width() and w.height() <= avail.height()
+    w.view3d.close_vtk()
 
 
 def test_console_without_romanian_letters_does_not_crash(tmp_path):

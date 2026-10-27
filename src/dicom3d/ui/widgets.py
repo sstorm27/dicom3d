@@ -1,4 +1,4 @@
-"""Componentele interfetei: comutatoare, histograma HU, butoane segmentate etc.
+"""Componentele interfetei: rigla Hounsfield, casete de bifat, file, campuri HU etc.
 
 Animatiile sunt scurte (sub 300 ms), cu ease-out, si doar acolo unde arata o
 schimbare de stare. Derularea feliilor si scurtaturile de tastatura raman instant.
@@ -11,17 +11,15 @@ from PySide6.QtCore import (
     QEvent,
     QObject,
     QParallelAnimationGroup,
-    QPoint,
     QPointF,
     QPropertyAnimation,
-    QRect,
     QRectF,
     QSize,
     Qt,
     QVariantAnimation,
     Signal,
 )
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -29,14 +27,13 @@ from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
-    QLayout,
     QPushButton,
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QToolTip,
     QVBoxLayout,
     QWidget,
-    QWidgetItem,
 )
 
 from dicom3d.ui import icons, theme
@@ -50,9 +47,25 @@ def label(text: str = "", role: str | None = None, wrap: bool = False) -> QLabel
     return lbl
 
 
+def value_label(text: str = "", size: int = 13, muted: bool = True) -> QLabel:
+    """Eticheta pentru numere: cifre tabulare, ca valorile sa nu sara cand se schimba."""
+    lbl = label(text, "muted" if muted else None)
+    lbl.setFont(theme.num_font(size))
+    return lbl
+
+
 def fmt_hu(value: float) -> str:
     """Numar cu semnul minus tipografic (−), ca in viewerele medicale."""
     return f"{value:.0f}".replace("-", "−")
+
+
+def fmt_num(value: float, decimals: int = 1) -> str:
+    """Numar zecimal in scrierea romaneasca: virgula zecimala, minus tipografic."""
+    return f"{value:.{decimals}f}".replace(".", ",").replace("-", "−")
+
+
+def fmt_int(n: int) -> str:
+    return f"{n:,}".replace(",", " ")
 
 
 class _WheelGuard(QObject):
@@ -73,137 +86,97 @@ def guard_wheel(widget: QWidget):
     widget.installEventFilter(_wheel_guard)
 
 
-class FlowLayout(QLayout):
-    """Asaza elementele pe randuri si trece pe randul urmator cand nu mai incap."""
-
-    def __init__(self, parent=None, spacing: int = 6):
-        super().__init__(parent)
-        self._items: list[QWidgetItem] = []
-        self._spacing = spacing
-        self.setContentsMargins(0, 0, 0, 0)
-
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self):
-        return len(self._items)
-
-    def itemAt(self, i):
-        return self._items[i] if 0 <= i < len(self._items) else None
-
-    def takeAt(self, i):
-        return self._items.pop(i) if 0 <= i < len(self._items) else None
-
-    def expandingDirections(self):
-        return Qt.Orientations()
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self._do_layout(QRect(0, 0, width, 0), apply=False)
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._do_layout(rect, apply=True)
-
-    def sizeHint(self):
-        return self.minimumSize()
-
-    def minimumSize(self):
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        return size
-
-    def _do_layout(self, rect, apply: bool) -> int:
-        x, y, row_h = rect.x(), rect.y(), 0
-        for item in self._items:
-            hint = item.sizeHint()
-            if x + hint.width() > rect.right() + 1 and row_h > 0:
-                x, y, row_h = rect.x(), y + row_h + self._spacing, 0
-            if apply:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x += hint.width() + self._spacing
-            row_h = max(row_h, hint.height())
-        return y + row_h - rect.y()
+def separator(vertical: bool = False) -> QFrame:
+    line = QFrame()
+    line.setObjectName("vsep" if vertical else "sep")
+    return line
 
 
-class ToggleSwitch(QCheckBox):
-    """Comutator pornit/oprit: textul in stanga, comutatorul in dreapta."""
+class ElidedLabel(QLabel):
+    """Text pe un rand care se scurteaza cu „…” cand nu incape (nu largeste layout-ul)."""
 
-    W, H, KNOB = 32, 18, 12
+    def __init__(self, text: str = "", role: str | None = None, parent=None):
+        super().__init__(text, parent)
+        if role:
+            self.setProperty("role", role)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(0)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        rect = self.contentsRect()
+        text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, rect.width())
+        self.style().drawItemText(p, rect, int(self.alignment()) | Qt.AlignVCenter, self.palette(),
+                                  self.isEnabled(), text, self.foregroundRole())
+
+
+class CheckRow(QCheckBox):
+    """Caseta de bifat patrata, cu textul in dreapta; tot randul se poate apasa."""
+
+    BOX = 14
 
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self._pos = 0.0
-        self._anim = QVariantAnimation(self, duration=theme.FAST, easingCurve=theme.EASE_OUT)
-        self._anim.valueChanged.connect(self._on_anim)
-        self.toggled.connect(self._animate_to)
-
-    def _on_anim(self, value):
-        self._pos = float(value)
-        self.update()
-
-    def _animate_to(self, on: bool):
-        self._anim.stop()
-        if not self.isVisible():
-            self._on_anim(1.0 if on else 0.0)
-            return
-        self._anim.setStartValue(self._pos)
-        self._anim.setEndValue(1.0 if on else 0.0)
-        self._anim.start()
 
     def sizeHint(self):
-        fm = self.fontMetrics()
-        return QSize(fm.horizontalAdvance(self.text()) + 16 + self.W, max(26, fm.height() + 8))
+        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + self.BOX + 12, 26)
 
     def minimumSizeHint(self):
-        return QSize(self.W + 40, self.sizeHint().height())
+        return QSize(self.BOX + 40, 26)
 
     def hitButton(self, pos):
         return self.rect().contains(pos)
 
+    def enterEvent(self, event):
+        self.update()
+
+    def leaveEvent(self, event):
+        self.update()
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        r = self.rect()
         enabled = self.isEnabled()
+        box = QRectF(0.5, (self.height() - self.BOX) / 2 + 0.5, self.BOX - 1, self.BOX - 1)
+        if self.isChecked():
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(theme.TEXT if enabled else theme.FAINT))
+            p.drawRect(box.adjusted(-0.5, -0.5, 0.5, 0.5))
+            check = QPainterPath(QPointF(box.left() + 3, box.center().y() + 0.5))
+            check.lineTo(box.left() + 5.8, box.center().y() + 3.2)
+            check.lineTo(box.right() - 2.6, box.top() + 3.4)
+            p.setPen(QPen(QColor(theme.INK0), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(check)
+        else:
+            hover = enabled and self.underMouse()
+            p.setPen(QPen(QColor(theme.MUTED if hover else theme.LINE_STRONG), 1))
+            p.setBrush(QColor(theme.INK2))
+            p.drawRect(box)
+        if self.hasFocus():
+            p.setPen(QPen(QColor(theme.TEXT), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(box.adjusted(-2.5, -2.5, 2.5, 2.5))
         p.setPen(QColor(theme.TEXT if enabled else theme.FAINT))
-        text_rect = r.adjusted(0, 0, -(self.W + 12), 0)
+        text_rect = self.rect().adjusted(self.BOX + 10, 0, 0, 0)
         p.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft,
                    self.fontMetrics().elidedText(self.text(), Qt.ElideRight, text_rect.width()))
 
-        track = QRectF(r.right() - self.W, r.center().y() - self.H / 2 + 1, self.W, self.H)
-        on = theme.mix(theme.INK3, theme.ACCENT, 0.38)
-        p.setPen(Qt.NoPen)
-        p.setBrush(theme.mix(theme.INK3, on, self._pos) if enabled else QColor(theme.INK2))
-        p.drawRoundedRect(track, self.H / 2, self.H / 2)
-        if self.hasFocus() and self.focusPolicy() != Qt.NoFocus:
-            p.setPen(QPen(QColor(theme.ACCENT), 1.5))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(track.adjusted(-2, -2, 2, 2), self.H / 2 + 2, self.H / 2 + 2)
-            p.setPen(Qt.NoPen)
-        pad = (self.H - self.KNOB) / 2
-        x = track.left() + pad + self._pos * (self.W - 2 * pad - self.KNOB)
-        p.setBrush(theme.mix(theme.MUTED, theme.ACCENT, self._pos) if enabled else QColor(theme.FAINT))
-        p.drawEllipse(QRectF(x, track.top() + pad, self.KNOB, self.KNOB))
 
-
-class SegmentedControl(QFrame):
-    """Butoane alaturate; checkable=True pastreaza o optiune aleasa."""
+class SegmentedControl(QWidget):
+    """File de text subliniate (fereastra CT, vederile 3D); checkable=True pastreaza alegerea."""
 
     currentTextChanged = Signal(str)
     clicked = Signal(str)
 
     def __init__(self, items, current: str | None = None, checkable: bool = True, parent=None):
         super().__init__(parent)
-        self.setObjectName("segmented")
+        self.setObjectName("tabs")
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(2, 2, 2, 2)
-        lay.setSpacing(2)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(14)
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: dict[str, QPushButton] = {}
@@ -216,7 +189,7 @@ class SegmentedControl(QFrame):
                 self._group.addButton(b)
                 b.toggled.connect(lambda on, t=text: on and self.currentTextChanged.emit(t))
             b.clicked.connect(lambda _=False, t=text: self.clicked.emit(t))
-            lay.addWidget(b)
+            lay.addWidget(b, 0, Qt.AlignBottom)
             self._buttons[text] = b
         if checkable:
             self._buttons[current or next(iter(self._buttons))].setChecked(True)
@@ -229,87 +202,69 @@ class SegmentedControl(QFrame):
         self._buttons[text].setChecked(True)
 
 
-class TissueChips(QWidget):
-    """Alegerea tesutului. `activated` se emite la orice click, si pe tesutul deja ales,
-    ca re-alegerea sa refaca pragurile."""
+class HounsfieldRuler(QWidget):
+    """Scala Hounsfield verticala: pragul, histograma seriei si presetarile pe aceeasi gradatie.
 
-    activated = Signal(str)
-
-    def __init__(self, names, parent=None):
-        super().__init__(parent)
-        lay = FlowLayout(self, spacing=6)
-        self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
-        self._buttons: dict[str, QPushButton] = {}
-        for name in names:
-            color = theme.TISSUE_COLORS.get(name, theme.ACCENT)
-            b = QPushButton(" " + theme.TISSUE_LABELS.get(name, name))
-            b.setProperty("variant", "chip")
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setIcon(icons.dot(color))
-            b.setIconSize(QSize(10, 10))
-            fill = theme.mix(theme.INK2, color, 0.13).name()
-            b.setStyleSheet(f"QPushButton:checked {{ border-color: {color}; background: {fill}; }}")
-            b.clicked.connect(lambda _=False, n=name: self.activated.emit(n))
-            self._group.addButton(b)
-            lay.addWidget(b)
-            self._buttons[name] = b
-
-    def names(self) -> list[str]:
-        return list(self._buttons)
-
-    def current(self) -> str:
-        for name, b in self._buttons.items():
-            if b.isChecked():
-                return name
-        return next(iter(self._buttons))
-
-    def set_current(self, name: str):
-        self._buttons[name].setChecked(True)
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self.layout().heightForWidth(width)
-
-
-class HistogramRange(QWidget):
-    """Histograma valorilor HU din serie, cu intervalul de prag tras cu mouse-ul."""
+    Sus sunt valorile mari (osul), jos aerul, ca pe un termometru. Intervalul ales se trage
+    de cele doua manere; o presetare se alege cu click pe numele ei sau cu sagetile sus/jos.
+    Paranteza de langa presetarea aleasa arata intervalul ei de referinta.
+    """
 
     rangeEdited = Signal(int, int)
+    presetActivated = Signal(str)
 
-    BINS = 150
-    HANDLE_GRAB = 8  # px in jurul unui maner in care il poti apuca
+    LO, HI = -1024.0, 3071.0
+    BINS = 160
+    PAD = 10
+    AXIS = 44  # x-ul axei; la stanga ei stau valorile scalei
+    GRAB = 7  # px in jurul unui maner in care il poti apuca
+    ROW = 16  # distanta minima intre numele presetarilor
 
-    def __init__(self, parent=None):
+    def __init__(self, presets: dict, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(84)
-        self.setMouseTracking(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._presets = [(name, float(p.lower), float(p.upper)) for name, p in presets.items()]
+        self._current = self._presets[0][0]
+        self._hover: str | None = None
         self._bars: np.ndarray | None = None
-        self._dom = (-1024.0, 3071.0)
-        self._lo, self._hi = 0.0, 0.0
-        self._color = QColor(theme.ACCENT)
+        self._lo, self._hi = self._presets[0][1], self._presets[0][2]
+        self._color = QColor(theme.TISSUE_COLORS.get(self._current, theme.TEXT))
         self._drag: int | None = None
         self._anim = QVariantAnimation(self, duration=theme.NORMAL, easingCurve=theme.EASE_OUT)
         self._anim.valueChanged.connect(self._on_anim)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(130)
+        self.setAccessibleName("Scala Hounsfield: prag și presetări de țesut")
 
     def sizeHint(self):
-        return QSize(260, 84)
+        return QSize(248, 300)
 
-    # ---------- date ----------
+    def minimumSizeHint(self):
+        return QSize(180, 130)
+
+    # ---------- API ----------
+
+    def names(self) -> list[str]:
+        return [name for name, _, _ in self._presets]
+
+    def current(self) -> str:
+        return self._current
+
+    def set_current(self, name: str):
+        self._current = name
+        self.update()
+
+    def activate(self, name: str):
+        """Alegerea unei presetari, ca de la utilizator (click sau tastatura)."""
+        self.set_current(name)
+        self.presetActivated.emit(name)
 
     def set_values(self, values: np.ndarray):
-        lo = max(float(values.min()), -1024.0)
-        hi = min(float(values.max()), 3071.0)
-        if hi <= lo:
-            hi = lo + 1
-        counts, _ = np.histogram(values, bins=self.BINS, range=(lo, hi))
-        bars = np.sqrt(counts.astype(np.float64))  # radacina: se vad si varfurile mici (osul)
+        counts, _ = np.histogram(np.clip(values, self.LO, self.HI), bins=self.BINS,
+                                 range=(self.LO, self.HI))
+        bars = np.log1p(counts.astype(np.float64))  # logaritmic: se vad si varfurile mici (osul)
         self._bars = bars / bars.max() if bars.max() > 0 else bars
-        self._dom = (lo, hi)
         self.update()
 
     def set_color(self, color: str):
@@ -318,7 +273,7 @@ class HistogramRange(QWidget):
 
     def set_range(self, lo: float, hi: float, animate: bool = False):
         self._anim.stop()
-        if animate and self._drag is None and self.isVisible() and self._bars is not None:
+        if animate and self._drag is None and self.isVisible():
             self._anim.setStartValue(QPointF(self._lo, self._hi))
             self._anim.setEndValue(QPointF(lo, hi))
             self._anim.start()
@@ -326,98 +281,207 @@ class HistogramRange(QWidget):
             self._lo, self._hi = float(lo), float(hi)
             self.update()
 
+    def range(self) -> tuple[float, float]:
+        return self._lo, self._hi
+
     def _on_anim(self, value: QPointF):
         self._lo, self._hi = value.x(), value.y()
         self.update()
 
     # ---------- geometrie ----------
 
-    def _plot(self) -> QRectF:
-        return QRectF(self.rect()).adjusted(8, 10, -8, -20)
+    def _top(self) -> float:
+        return self.PAD
 
-    def _x(self, hu: float) -> float:
-        r = self._plot()
-        lo, hi = self._dom
-        t = min(max((hu - lo) / (hi - lo), 0.0), 1.0)
-        return r.left() + t * r.width()
+    def _bottom(self) -> float:
+        return self.height() - self.PAD
 
-    def _hu(self, x: float) -> int:
-        r = self._plot()
-        lo, hi = self._dom
-        t = min(max((x - r.left()) / r.width(), 0.0), 1.0)
-        return int(round(lo + t * (hi - lo)))
+    def _y(self, hu: float) -> float:
+        t = (self.HI - min(max(hu, self.LO), self.HI)) / (self.HI - self.LO)
+        return self._top() + t * (self._bottom() - self._top())
+
+    def _hu(self, y: float) -> int:
+        t = min(max((y - self._top()) / (self._bottom() - self._top()), 0.0), 1.0)
+        return int(round(self.HI - t * (self.HI - self.LO)))
+
+    def _cols(self) -> dict[str, float]:
+        hist0 = self.AXIS + 8
+        hist_w = min(max((self.width() - hist0) * 0.3, 36.0), 80.0)
+        band1 = hist0 + hist_w + 6
+        bracket = band1 + 14
+        return {"hist0": hist0, "hist_w": hist_w, "band1": band1, "bracket": bracket,
+                "swatch": bracket + 8, "text": bracket + 20}
+
+    def _label_rows(self) -> list[tuple[str, float, float, float]]:
+        """(nume, y eticheta, y sus, y jos), cu etichetele departate cat sa nu se suprapuna."""
+        rows = sorted(((n, (self._y(lo) + self._y(hi)) / 2, self._y(hi), self._y(lo))
+                       for n, lo, hi in self._presets), key=lambda r: r[1])
+        ys = [r[1] for r in rows]
+        for i in range(1, len(ys)):
+            ys[i] = max(ys[i], ys[i - 1] + self.ROW)
+        ys[-1] = min(ys[-1], self._bottom() - 4)
+        for i in range(len(ys) - 2, -1, -1):
+            ys[i] = min(ys[i], ys[i + 1] - self.ROW)
+        return [(n, y, top, bottom) for (n, _, top, bottom), y in zip(rows, ys)]
+
+    def _preset_at(self, pos: QPointF) -> str | None:
+        if pos.x() < self._cols()["bracket"] - 4:
+            return None
+        for name, y, _, _ in self._label_rows():
+            if abs(pos.y() - y) <= self.ROW / 2:
+                return name
+        return None
 
     # ---------- desenare ----------
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        p.setPen(QPen(QColor(theme.LINE), 1))
-        p.setBrush(QColor(theme.INK0))
-        p.drawRoundedRect(frame, 8, 8)
+        c = self._cols()
+        top, bottom = self._top(), self._bottom()
+        axis = self.AXIS + 0.5
 
-        if self._bars is None:
-            p.setPen(QColor(theme.FAINT))
-            p.drawText(self.rect(), Qt.AlignCenter, "Histograma HU apare după încărcare")
-            return
+        # scala: gradatii la 100 HU, valori la 500 (la 1000 cand rigla e scunda)
+        every = 500 if bottom - top >= 220 else 1000
+        p.setFont(theme.num_font(11))
+        tick_pen = QPen(QColor(theme.TICK), 1)
+        for hu in range(-1000, 3001, 100):
+            y = round(self._y(hu)) + 0.5
+            major = hu % 500 == 0
+            p.setPen(tick_pen)
+            p.drawLine(QPointF(axis, y), QPointF(axis + (8 if major else 4), y))
+            if hu % every == 0:
+                p.setPen(QColor(theme.FAINT))
+                p.drawText(QRectF(0, y - 8, self.AXIS - 8, 16), Qt.AlignRight | Qt.AlignVCenter,
+                           fmt_hu(hu))
+        p.setPen(QPen(QColor(theme.LINE_STRONG), 1))
+        p.drawLine(QPointF(axis, top), QPointF(axis, bottom))
 
-        plot = self._plot()
-        x0, x1 = self._x(self._lo), self._x(self._hi)
+        # intervalul ales si histograma
+        y_hi, y_lo = self._y(self._hi), self._y(self._lo)
         band = QColor(self._color)
-        band.setAlphaF(0.10)
-        p.fillRect(QRectF(x0, plot.top() - 4, max(x1 - x0, 1), plot.height() + 4), band)
+        band.setAlphaF(0.07)
+        p.fillRect(QRectF(axis + 0.5, y_hi, c["band1"] - axis, max(y_lo - y_hi, 1)), band)
+        if self._bars is not None:
+            idle = QColor("#2f3736")
+            sel = QColor(self._color)
+            sel.setAlphaF(0.6)
+            width = (self.HI - self.LO) / len(self._bars)
+            p.setPen(Qt.NoPen)
+            for i, v in enumerate(self._bars):
+                if v <= 0:
+                    continue
+                a, b = self.LO + i * width, self.LO + (i + 1) * width
+                ya, yb = self._y(a), self._y(b)
+                p.setBrush(sel if self._lo <= (a + b) / 2 <= self._hi else idle)
+                p.drawRect(QRectF(c["hist0"], yb, max(v * c["hist_w"], 1.0), ya - yb + 0.4))
 
-        lo, hi = self._dom
-        step = plot.width() / len(self._bars)
-        idle = QColor("#32465a")
+        p.setPen(QPen(self._color, 1.5))
+        for y in (y_hi, y_lo):
+            p.drawLine(QPointF(axis - 6, y), QPointF(c["band1"], y))
         p.setPen(Qt.NoPen)
-        for i, v in enumerate(self._bars):
-            h = max(1.0, v * plot.height())
-            hu_mid = lo + (i + 0.5) / len(self._bars) * (hi - lo)
-            p.setBrush(self._color if self._lo <= hu_mid <= self._hi else idle)
-            p.drawRect(QRectF(plot.left() + i * step, plot.bottom() - h, max(step - 1, 1), h))
+        p.setBrush(self._color)
+        for y in (y_hi, y_lo):
+            p.drawPolygon(QPolygonF([QPointF(c["band1"], y), QPointF(c["band1"] + 6, y - 4.5),
+                                     QPointF(c["band1"] + 6, y + 4.5)]))
 
-        for x in (x0, x1):
-            p.setBrush(QColor(theme.ACCENT))
-            p.drawRect(QRectF(x - 1, plot.top() - 4, 2, plot.height() + 4))
-            p.drawEllipse(QPointF(x, plot.top() - 2), 4.5, 4.5)
+        # presetarile: numele la mijlocul intervalului lor de referinta
+        for name, y, y_top, y_bottom in self._label_rows():
+            color = QColor(theme.TISSUE_COLORS.get(name, theme.TEXT))
+            current, hover = name == self._current, name == self._hover
+            if current or hover:
+                p.setPen(QPen(color if current else QColor(theme.MUTED), 2 if current else 1))
+                x = c["bracket"]
+                p.drawLine(QPointF(x, y_top), QPointF(x, y_bottom))
+                p.drawLine(QPointF(x - 4, y_top), QPointF(x, y_top))
+                p.drawLine(QPointF(x - 4, y_bottom), QPointF(x, y_bottom))
+            p.fillRect(QRectF(c["swatch"], y - 3, 6, 6), color)
+            text = theme.TISSUE_LABELS.get(name, name)
+            font = theme.sans_font(13, QFont.DemiBold if current else QFont.Normal)
+            p.setFont(font)
+            p.setPen(color if current else QColor(theme.TEXT if hover else theme.MUTED))
+            avail = self.width() - c["text"] - 2
+            rect = QRectF(c["text"], y - 9, avail, 18)
+            p.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter,
+                       p.fontMetrics().elidedText(text, Qt.ElideRight, int(avail)))
+            if current:
+                lo, hi = next((a, b) for n, a, b in self._presets if n == name)
+                span = f"{fmt_hu(lo)} … {fmt_hu(hi)}"
+                used = p.fontMetrics().horizontalAdvance(text) + 6
+                p.setFont(theme.num_font(12))
+                if used + p.fontMetrics().horizontalAdvance(span) <= avail:
+                    p.setPen(QColor(theme.MUTED))
+                    p.drawText(rect.adjusted(used, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, span)
+                if self.hasFocus():
+                    p.setPen(QPen(QColor(theme.TEXT), 1))
+                    p.setBrush(Qt.NoBrush)
+                    p.drawRect(QRectF(c["swatch"] - 4, y - 10, avail + c["text"] - c["swatch"] + 4, 20))
 
-        p.setFont(theme.mono_font(10))
-        p.setPen(QColor(theme.FAINT))
-        y = int(plot.bottom()) + 4
-        p.drawText(QRect(int(plot.left()), y, 80, 14), Qt.AlignLeft, fmt_hu(lo))
-        p.drawText(QRect(int(plot.right()) - 80, y, 80, 14), Qt.AlignRight, f"{fmt_hu(hi)} HU")
-        if lo < 0 < hi and plot.width() > 200:
-            zx = int(self._x(0))
-            p.drawText(QRect(zx - 20, y, 40, 14), Qt.AlignHCenter, "0")
+    # ---------- mouse si tastatura ----------
 
-    # ---------- mouse ----------
-
-    def _nearest(self, x: float) -> int:
-        return 0 if abs(x - self._x(self._lo)) <= abs(x - self._x(self._hi)) else 1
+    def _nearest_handle(self, y: float) -> int:
+        return 0 if abs(y - self._y(self._lo)) <= abs(y - self._y(self._hi)) else 1
 
     def mousePressEvent(self, event):
-        if self._bars is None or event.button() != Qt.LeftButton:
+        if event.button() != Qt.LeftButton:
             return
-        self._anim.stop()
-        self._drag = self._nearest(event.position().x())
-        self._drag_to(event.position().x())
+        pos = event.position()
+        name = self._preset_at(pos)
+        if name is not None:
+            self.activate(name)
+            return
+        if pos.x() <= self._cols()["band1"] + 8:
+            self._anim.stop()
+            self._drag = self._nearest_handle(pos.y())
+            self._drag_to(pos.y())
 
     def mouseMoveEvent(self, event):
-        x = event.position().x()
+        pos = event.position()
         if self._drag is not None:
-            self._drag_to(x)
+            self._drag_to(pos.y())
             return
-        near = self._bars is not None and min(abs(x - self._x(self._lo)),
-                                              abs(x - self._x(self._hi))) <= self.HANDLE_GRAB
-        self.setCursor(Qt.SizeHorCursor if near else Qt.ArrowCursor)
+        name = self._preset_at(pos)
+        if name != self._hover:
+            self._hover = name
+            self.update()
+        if name is not None:
+            lo, hi = next((a, b) for n, a, b in self._presets if n == name)
+            QToolTip.showText(event.globalPosition().toPoint(),
+                              f"{theme.TISSUE_LABELS.get(name, name)}: {fmt_hu(lo)} … {fmt_hu(hi)} HU",
+                              self)
+            self.setCursor(Qt.PointingHandCursor)
+            return
+        near = pos.x() <= self._cols()["band1"] + 8 and min(
+            abs(pos.y() - self._y(self._lo)), abs(pos.y() - self._y(self._hi))) <= self.GRAB
+        self.setCursor(Qt.SizeVerCursor if near else Qt.ArrowCursor)
+
+    def leaveEvent(self, event):
+        self._hover = None
+        self.update()
 
     def mouseReleaseEvent(self, event):
         self._drag = None
 
-    def _drag_to(self, x: float):
-        hu = self._hu(x)
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
+            order = [n for n, _, _, _ in self._label_rows()]  # de sus in jos
+            i = order.index(self._current)
+            i = max(i - 1, 0) if event.key() == Qt.Key_Up else min(i + 1, len(order) - 1)
+            if order[i] != self._current:
+                self.activate(order[i])
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def _drag_to(self, y: float):
+        hu = self._hu(y)
         if self._drag == 0:
             self._lo = min(hu, self._hi)
         else:
@@ -436,7 +500,7 @@ class ValueSlider(QWidget):
         super().__init__(parent)
         self._step, self._suffix, self._decimals = step, suffix, decimals
         self.title = label(text)
-        self.value_label = label("", "value")
+        self.value_label = value_label()
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(round(minimum / step), round(maximum / step))
         self.slider.setCursor(Qt.PointingHandCursor)
@@ -449,7 +513,7 @@ class ValueSlider(QWidget):
         head.addWidget(self.value_label)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(2)
         lay.addLayout(head)
         lay.addWidget(self.slider)
         self.setValue(value)
@@ -468,7 +532,7 @@ class ValueSlider(QWidget):
         self.slider.setToolTip(text)
 
     def _show(self, v: float):
-        self.value_label.setText(f"{v:.{self._decimals}f}{self._suffix}")
+        self.value_label.setText(f"{fmt_num(v, self._decimals)}{self._suffix}")
 
     def _on_change(self, _):
         v = self.value()
@@ -500,8 +564,22 @@ def hu_spin() -> QSpinBox:
     s.setKeyboardTracking(False)
     s.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     s.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    s.setFont(theme.num_font(14, QFont.Medium))
+    s.setMinimumWidth(48)  # altfel latimea pentru „10000 HU” ar largi panoul ingust
     guard_wheel(s)
     return s
+
+
+def field(prefix: str, widget: QWidget) -> QFrame:
+    """Camp cu eticheta in interior („de la 250 HU”)."""
+    box = QFrame()
+    box.setObjectName("field")
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(10, 0, 8, 0)
+    lay.setSpacing(6)
+    lay.addWidget(label(prefix, "hint"))
+    lay.addWidget(widget, 1)
+    return box
 
 
 class Banner(QFrame):
@@ -515,8 +593,8 @@ class Banner(QFrame):
         self.icon.setAlignment(Qt.AlignTop)
         self.text = label("", wrap=True)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(10)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(8)
         lay.addWidget(self.icon, 0, Qt.AlignTop)
         lay.addWidget(self.text, 1)
         self._effect = QGraphicsOpacityEffect(self, opacity=1.0)
@@ -541,7 +619,7 @@ class Banner(QFrame):
         self._animate(0, 0.0, theme.FAST, hide_after=True)
 
     def _target_height(self) -> int:
-        w = self.width() or (self.parentWidget().width() if self.parentWidget() else 280)
+        w = self.width() or (self.parentWidget().width() if self.parentWidget() else 248)
         return max(self.layout().totalHeightForWidth(w), self.sizeHint().height())
 
     def _animate(self, height: int, opacity: float, duration: int, hide_after: bool = False):
@@ -599,22 +677,22 @@ class BusyBar(QWidget):
         seg = w * 0.3
         x = -seg + self._t * (w + seg)
         g = QLinearGradient(x, 0, x + seg, 0)
-        clear = QColor(theme.ACCENT)
+        clear = QColor(theme.TEXT)
         clear.setAlpha(0)
         g.setColorAt(0, clear)
-        g.setColorAt(0.5, QColor(theme.ACCENT))
+        g.setColorAt(0.5, QColor(theme.TEXT))
         g.setColorAt(1, clear)
         p.fillRect(QRectF(x, 0, seg, self.height()), g)
 
 
 class StatusDot(QWidget):
-    """Bulina de stare din bara de jos: gata, in lucru sau eroare."""
+    """Patratelul de stare din bara de jos: gata, in lucru sau eroare."""
 
-    COLORS = {"ok": theme.OK, "busy": theme.ACCENT, "error": theme.DANGER, "idle": theme.FAINT}
+    COLORS = {"ok": theme.OK, "busy": theme.TEXT, "error": theme.DANGER, "idle": theme.FAINT}
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(14, 14)
+        self.setFixedSize(12, 12)
         self._kind = "idle"
 
     def set_kind(self, kind: str):
@@ -623,23 +701,15 @@ class StatusDot(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        c = QColor(self.COLORS[self._kind])
-        halo = QColor(c)
-        halo.setAlphaF(0.22)
-        p.setPen(Qt.NoPen)
-        p.setBrush(halo)
-        p.drawEllipse(QPointF(7, 7), 6, 6)
-        p.setBrush(c)
-        p.drawEllipse(QPointF(7, 7), 3.5, 3.5)
+        p.fillRect(QRectF(2.5, 2.5, 7, 7), QColor(self.COLORS[self._kind]))
 
 
 def icon_button(name: str, tooltip: str) -> QPushButton:
     b = QPushButton()
     b.setProperty("variant", "icon")
-    b.setIcon(icons.icon(name, theme.MUTED))
+    b.setIcon(icons.icon(name, theme.OVERLAY_TEXT))
     b.setIconSize(QSize(16, 16))
     b.setToolTip(tooltip)
+    b.setAccessibleName(tooltip)
     b.setCursor(Qt.PointingHandCursor)
     return b
-

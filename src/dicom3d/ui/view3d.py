@@ -50,14 +50,17 @@ class View3D(QWidget):
         lay.addWidget(self.vtk_widget)
 
         self.renderer = vtk.vtkRenderer()
-        # fundal in gradient pe tonurile temei: mai luminos sus, aproape negru jos
-        self.renderer.SetBackground(*_rgb("#0b1015"))
-        self.renderer.SetBackground2(*_rgb("#26313b"))
-        self.renderer.GradientBackgroundOn()
+        self.renderer.SetBackground(0.0, 0.0, 0.0)  # negru, ca felia: nimic nu concureaza cu modelul
+        # depth peeling: cu opacitate sub 100 % suprafetele din spate se vad corect prin cele din fata
+        self.renderer.SetUseDepthPeeling(1)
+        self.renderer.SetMaximumNumberOfPeels(8)
+        self.renderer.SetOcclusionRatio(0.0)
         lights = vtk.vtkLightKit()  # lumina din mai multe directii: relief mai lizibil
         lights.SetKeyLightIntensity(1.0)
         lights.AddLightsToRenderer(self.renderer)
         rw = self.vtk_widget.GetRenderWindow()
+        rw.SetAlphaBitPlanes(1)
+        rw.SetMultiSamples(0)  # depth peeling nu merge cu multisampling pe unele placi video
         rw.AddRenderer(self.renderer)
         self.interactor = rw.GetInteractor()
         self.interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
@@ -97,6 +100,7 @@ class View3D(QWidget):
         prop.SetSpecularPower(28)
         self.renderer.AddActor(actor)
         self._actor = actor
+        self._marker.GetOrientationMarker().SetVisibility(True)
         self.reset_camera()
 
     def set_color(self, color: str):
@@ -109,6 +113,7 @@ class View3D(QWidget):
         if self._actor is not None:
             self.renderer.RemoveActor(self._actor)
             self._actor = None
+        self._marker.GetOrientationMarker().SetVisibility(False)
         self.render()
 
     def set_opacity(self, value: float):
@@ -195,33 +200,46 @@ class View3D(QWidget):
         self.render()
 
     def _add_orientation_axes(self):
+        """Indicatorul de orientare din coltul din dreapta sus: axe gri, litere lizibile."""
         axes = vtk.vtkAxesActor()
         axes.SetXAxisLabelText("L")
         axes.SetYAxisLabelText("P")
         axes.SetZAxisLabelText("S")
         axes.SetShaftTypeToLine()
         axes.SetTotalLength(1.0, 1.0, 1.0)
-        for color, shaft, tip, caption in (
-            ("#f07b6a", axes.GetXAxisShaftProperty(), axes.GetXAxisTipProperty(),
-             axes.GetXAxisCaptionActor2D()),
-            ("#e8b04f", axes.GetYAxisShaftProperty(), axes.GetYAxisTipProperty(),
-             axes.GetYAxisCaptionActor2D()),
-            (theme.ACCENT, axes.GetZAxisShaftProperty(), axes.GetZAxisTipProperty(),
-             axes.GetZAxisCaptionActor2D()),
+        axes.SetConeRadius(0.3)
+        line, text_color = _rgb(theme.OVERLAY_TEXT), _rgb(theme.TEXT)
+        for shaft, tip, caption in (
+            (axes.GetXAxisShaftProperty(), axes.GetXAxisTipProperty(), axes.GetXAxisCaptionActor2D()),
+            (axes.GetYAxisShaftProperty(), axes.GetYAxisTipProperty(), axes.GetYAxisCaptionActor2D()),
+            (axes.GetZAxisShaftProperty(), axes.GetZAxisTipProperty(), axes.GetZAxisCaptionActor2D()),
         ):
-            rgb = _rgb(color)
-            shaft.SetColor(*rgb)
-            shaft.SetLineWidth(2)
-            tip.SetColor(*rgb)
+            shaft.SetColor(*line)
+            shaft.SetLineWidth(1.5)
+            tip.SetColor(*line)
+            caption.GetTextActor().SetTextScaleModeToNone()  # litere de marime fixa, nu minuscule
             text = caption.GetCaptionTextProperty()
-            text.SetColor(*rgb)
+            text.SetColor(*text_color)
+            text.SetFontSize(15)
             text.ItalicOff()
             text.BoldOn()
             text.ShadowOff()
-            text.SetFontFamilyToCourier()
+            text.SetFontFamilyToArial()
         self._marker = vtk.vtkOrientationMarkerWidget()
         self._marker.SetOrientationMarker(axes)
         self._marker.SetInteractor(self.interactor)
-        self._marker.SetViewport(0.86, 0.0, 1.0, 0.16)
+        self._place_marker()
         self._marker.SetEnabled(1)
         self._marker.InteractiveOff()
+        self._marker.GetOrientationMarker().SetVisibility(False)  # apare odata cu modelul
+
+    MARKER_PX = 116  # latura indicatorului de orientare, in pixeli, indiferent de marimea vederii
+
+    def _place_marker(self):
+        w, h = max(self.width(), 1), max(self.height(), 1)
+        fw, fh = min(self.MARKER_PX / w, 0.4), min(self.MARKER_PX / h, 0.4)
+        self._marker.SetViewport(1.0 - fw, 1.0 - fh, 1.0, 1.0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_marker()

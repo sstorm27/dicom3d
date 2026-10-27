@@ -20,17 +20,23 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 
 ## Interfata
 
-Tema intunecata, ca la statiile de radiologie, cu un singur accent cian (fonturi IBM Plex,
-incluse in aplicatie). Panoul din stanga urmeaza pasii lucrului: serie, segmentare, model.
+Gandita ca un instrument de masura: grafit aproape monocrom, colturi drepte, linii fine,
+fara carduri. Singura culoare din ecran este tesutul ales; actiunile si selectia sunt albe.
+Fonturile sunt Barlow si Barlow Semi Condensed cu cifre tabulare (incluse in aplicatie, licenta OFL).
 
 - folderul DICOM se poate trage direct in fereastra (sau Ctrl+O)
-- tesutul se alege din butoane colorate; aceeasi culoare marcheaza masca pe felie si modelul 3D
-- pragul se trage direct pe histograma HU a seriei sau se scrie in campuri
-- felia are informatiile in colturi (felia, fereastra W/L, HU sub cursor, orientarea A/P/R/L);
-  rotita mouse-ului schimba felia
-- vederi 3D standard (anterior, lateral, superior) cu rotire lina, captura PNG
+- rigla Hounsfield: o singura scara gradata de la -1024 la 3071 HU care aduna pragul,
+  histograma seriei si presetarile de tesut; se trag capetele pragului sau se da clic pe
+  un tesut (sagetile sus/jos trec la tesutul vecin), iar valorile se pot scrie si in campuri
+- fereastra CT a feliei urmeaza tesutul ales (os, tesut moale, plamani)
+- felia are rigle in cm, o scala gradata pentru felie in dreapta si informatiile in colturi
+  (felia, grosimea, fereastra W/L, HU sub cursor, orientarea A/P/R/L); rotita mouse-ului,
+  sagetile, PgUp/PgDn, Home/End schimba felia
+- vederi 3D standard (anterior, lateral, superior) cu rotire lina, captura PNG;
+  opacitatea modelului se randeaza corect (depth peeling)
 - avertisment cand modelul afisat nu mai corespunde setarilor
-- fereastra ingusta: viewport-urile trec unul sub altul
+- fereastra se potriveste ecranului (porneste maximizata pe ecrane mici); in fereastra
+  ingusta viewport-urile trec unul sub altul
 - scurtaturi: Ctrl+O deschide, Ctrl+G genereaza, Ctrl+E exporta, R reseteaza camera
 
 ## Instalare (dezvoltare)

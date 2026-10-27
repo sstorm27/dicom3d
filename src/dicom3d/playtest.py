@@ -102,8 +102,8 @@ class Playtest:
         self.log(f"    captura: {path.name}")
 
     def choose_preset(self, name: str):
-        """Ca un click pe tesut: activated se emite la fiecare alegere a utilizatorului."""
-        self.w.tissue_chips._buttons[name].click()
+        """Ca un click pe numele tesutului de pe scala Hounsfield."""
+        self.w.ruler.activate(name)
 
     def build(self, label: str) -> float | None:
         w = self.w

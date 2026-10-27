@@ -1,7 +1,8 @@
 """Fereastra principala a aplicatiei.
 
-Aranjament: bara de sus (seria si actiunile), panoul din stanga cu pasii
-lucrului (serie, segmentare, model) si doua viewport-uri: felia 2D si modelul 3D.
+Aranjament: bara de sus (seria si actiunile), panoul din stanga (rigla
+Hounsfield cu pragul, curatarea mastii, modelul) si doua vederi pe negru:
+felia 2D si modelul 3D.
 """
 
 from __future__ import annotations
@@ -13,14 +14,12 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSlider,
     QSplitter,
     QVBoxLayout,
@@ -38,23 +37,30 @@ from dicom3d.ui.view3d import VIEWS, View3D
 from dicom3d.ui.widgets import (
     Banner,
     BusyBar,
-    HistogramRange,
+    CheckRow,
+    ElidedLabel,
+    HounsfieldRuler,
     SegmentedControl,
     StatusDot,
-    TissueChips,
-    ToggleSwitch,
     ValueSlider,
+    field,
     fmt_hu,
+    fmt_int,
+    fmt_num,
     guard_wheel,
     hu_spin,
     icon_button,
     label,
+    separator,
+    value_label,
 )
 from dicom3d.ui.worker import Worker
 
 LARGE_MESH_TRIANGLES = 2_000_000
-SIDEBAR_WIDTH = 312
-STACK_BELOW = 900  # sub aceasta latime a zonei de vizualizare, viewport-urile se aseaza unul sub altul
+SIDEBAR_WIDTH = 288
+SIDEBAR_NARROW = 264  # sub 1180 px latime a ferestrei
+STACK_BELOW = 900  # sub aceasta latime a zonei de vizualizare, vederile se aseaza una sub alta
+PREFERRED_SIZE = QSize(1440, 880)
 
 # fereastra de afisare 2D: (latime, centru) in HU
 WINDOWS = {
@@ -63,22 +69,36 @@ WINDOWS = {
     "Plămâni": (1500, -600),
     "Creier": (80, 40),
 }
+# la alegerea unui tesut, felia trece pe fereastra in care el se vede cel mai bine
+PRESET_WINDOW = {
+    "Os": "Os",
+    "Tesut moale": "Țesut moale",
+    "Vase cu contrast": "Țesut moale",
+    "Plamani (aer)": "Plămâni",
+    "Piele": "Țesut moale",
+}
 
-STALE_TEXT = ("Setările s-au schimbat după generare. Apasă Generează ca modelul să le urmeze; "
-              "exportul salvează modelul afișat acum.")
+STALE_TEXT = "Setările s-au schimbat după generare. Generează din nou ca modelul să le urmeze."
 LARGE_TEXT = ("Model foarte mare: rotirea și exportul pot fi lente. "
               "Mărește Simplificarea sau folosește un prag mai strict.")
 
 
-def _group(spacing: int = 12) -> QVBoxLayout:
-    lay = QVBoxLayout()
-    lay.setContentsMargins(0, 0, 0, 0)
+def _section(title: str, hint: str = "") -> QHBoxLayout:
+    head = QHBoxLayout()
+    head.setContentsMargins(0, 0, 0, 0)
+    head.addWidget(label(title, "h"))
+    head.addStretch(1)
+    if hint:
+        head.addWidget(label(hint, "hint"))
+    return head
+
+
+def _column(margins=(20, 12, 20, 12), spacing: int = 6) -> tuple[QWidget, QVBoxLayout]:
+    w = QWidget()
+    lay = QVBoxLayout(w)
+    lay.setContentsMargins(*margins)
     lay.setSpacing(spacing)
-    return lay
-
-
-def _fmt_int(n: int) -> str:
-    return f"{n:,}".replace(",", " ")
+    return w, lay
 
 
 class MainWindow(QMainWindow):
@@ -86,8 +106,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("DICOM3D")
         self.setWindowIcon(icons.app_icon())
-        self.resize(1440, 880)
-        self.setMinimumSize(960, 620)
+        self._fit_to_screen()
         self.setAcceptDrops(True)
         self.pool = QThreadPool.globalInstance()
         self.volume: Volume | None = None
@@ -95,6 +114,7 @@ class MainWindow(QMainWindow):
         self._stale = False
         self._busy = False
         self._built_tissue = ""
+        self._summary = ""
 
         self.slice_view = SliceView()
         self.view3d = View3D()
@@ -121,45 +141,59 @@ class MainWindow(QMainWindow):
         self._preview_timer = QTimer(self, singleShot=True, interval=60)
         self._preview_timer.timeout.connect(self._update_preview)
 
-        self._apply_preset(self.tissue_chips.current(), animate=False)
+        self._apply_preset(self.ruler.current(), animate=False)
         self._set_busy(False)
         self._set_status("Gata. Deschide un folder cu o serie DICOM.", "idle")
+
+    def _fit_to_screen(self):
+        """Fereastra incape in ecran; pe ecrane mici (ex. 1280×800 cu scalare) porneste maximizata."""
+        screen = self.screen()
+        avail = screen.availableGeometry() if screen else None
+        if avail is None or avail.width() <= 0:
+            self.resize(PREFERRED_SIZE)
+            self.setMinimumSize(960, 620)
+            return
+        w = min(PREFERRED_SIZE.width(), avail.width() - 32)
+        h = min(PREFERRED_SIZE.height(), avail.height() - 64)  # loc pentru bara de titlu
+        self.setMinimumSize(min(960, w), min(600, h))
+        self.resize(w, h)
+        if w < PREFERRED_SIZE.width() or h < PREFERRED_SIZE.height():
+            self.setWindowState(Qt.WindowMaximized)
 
     # ---------- construirea interfetei ----------
 
     def _build_topbar(self) -> QWidget:
         bar = QFrame()
         bar.setObjectName("topbar")
-        bar.setFixedHeight(52)
+        bar.setFixedHeight(44)
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(16, 0, 12, 0)
-        lay.setSpacing(8)
+        lay.setSpacing(12)
 
         logo = label()
-        logo.setPixmap(icons.pixmap("logo", 22, theme.ACCENT, 1.6))
-        brand = label("DICOM3D", "brand")
-        version = label(__version__, "version")
+        logo.setPixmap(icons.pixmap("logo", 18, theme.TEXT, 1.6))
         lay.addWidget(logo)
-        lay.addSpacing(2)
-        lay.addWidget(brand)
+        lay.addWidget(label("DICOM3D", "brand"))
+        version = value_label(__version__, 12)
+        version.setProperty("role", "faint")
         lay.addWidget(version)
-        lay.addSpacing(24)
-
-        self.modality_pill = label("", "pill")
-        self.modality_pill.setFixedHeight(20)
-        self.series_title = label("", "series")
-        self.series_meta = label("", "muted")
-        for w in (self.modality_pill, self.series_title, self.series_meta):
+        self.series_sep = separator(vertical=True)
+        self.series_sep.setFixedHeight(18)
+        self.modality_label = label("", "h")
+        self.series_title = label("")
+        self.series_meta = ElidedLabel("", "muted")
+        self.series_meta.setFont(theme.num_font(13))
+        for w in (self.series_sep, self.modality_label, self.series_title):
             w.hide()
-            lay.addWidget(w)
-        lay.addStretch(1)
+            lay.addWidget(w, 0, Qt.AlignVCenter)
+        lay.addWidget(self.series_meta, 1)
 
         self.open_btn = QPushButton(" Deschide serie")
         self.open_btn.setProperty("variant", "ghost")
-        self.open_btn.setIcon(icons.icon("folder", theme.MUTED))
+        self.open_btn.setIcon(icons.icon("folder"))
         self.open_btn.setToolTip("Deschide un folder cu o serie DICOM (Ctrl+O)")
         self.open_btn.clicked.connect(lambda: self.open_folder())
-        self.export_btn = QPushButton(" Exportă model 3D")
+        self.export_btn = QPushButton(" Exportă model")
         self.export_btn.setIcon(icons.icon("export"))
         self.export_btn.setToolTip("Salvează modelul afișat ca STL, OBJ sau PLY (Ctrl+E)")
         self.export_btn.clicked.connect(self.export_model)
@@ -168,15 +202,6 @@ class MainWindow(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             lay.addWidget(b)
         return bar
-
-    def _section(self, step: str, title: str) -> QHBoxLayout:
-        head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(8)
-        head.addWidget(label(step, "step"))
-        head.addWidget(label(title.upper(), "section"))
-        head.addStretch(1)
-        return head
 
     def _build_sidebar(self) -> QWidget:
         side = QFrame()
@@ -190,71 +215,58 @@ class MainWindow(QMainWindow):
         content = QWidget()
         content.setObjectName("sidebarContent")
         col = QVBoxLayout(content)
-        col.setContentsMargins(16, 16, 16, 16)
-        col.setSpacing(24)  # intre grupuri: mai mult decat in interiorul lor
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
 
-        # 1. seria
-        g = _group()
-        g.addLayout(self._section("1", "Serie"))
-        self.series_grid = QGridLayout()
-        self.series_grid.setHorizontalSpacing(12)
-        self.series_grid.setVerticalSpacing(6)
-        self.series_values: dict[str, object] = {}
-        for row, key in enumerate(("Dimensiune", "Spațiere", "Valori")):
-            self.series_grid.addWidget(label(key, "faint"), row, 0)
-            value = label("–", "value")
-            value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.series_grid.addWidget(value, row, 1)
-            self.series_values[key] = value
-        g.addLayout(self.series_grid)
-        col.addLayout(g)
-
-        # 2. segmentarea
-        g = _group()
-        g.addLayout(self._section("2", "Segmentare"))
-        self.tissue_chips = TissueChips(PRESETS.keys())
-        self.tissue_chips.set_current("Os")
+        # pragul: rigla Hounsfield cu histograma si presetarile, apoi valorile exacte
+        sec, g = _column((20, 12, 20, 12), 4)
+        g.addLayout(_section("Prag", "unități Hounsfield"))
+        self.ruler = HounsfieldRuler(PRESETS)
+        self.ruler.setToolTip("Trage manerele ca să alegi pragul; alege un țesut din dreapta scalei")
         # activated (nu doar schimbarea): re-alegerea aceluiasi tesut reface pragurile
-        self.tissue_chips.activated.connect(self._apply_preset)
-        g.addWidget(self.tissue_chips)
-        self.histogram = HistogramRange()
-        self.histogram.setToolTip("Trage marginile intervalului ca să alegi pragul")
-        self.histogram.rangeEdited.connect(self._on_histogram_edit)
-        g.addWidget(self.histogram)
+        self.ruler.presetActivated.connect(self._apply_preset)
+        self.ruler.rangeEdited.connect(self._on_ruler_edit)
+        g.addWidget(self.ruler, 1)
         rng = QHBoxLayout()
         rng.setSpacing(8)
+        rng.setContentsMargins(0, 6, 0, 0)
         self.lower_spin = hu_spin()
         self.upper_spin = hu_spin()
         self.lower_spin.setToolTip("Prag inferior")
         self.upper_spin.setToolTip("Prag superior")
-        rng.addWidget(self.lower_spin, 1)
-        rng.addWidget(label("până la", "faint"))
-        rng.addWidget(self.upper_spin, 1)
+        rng.addWidget(field("de la", self.lower_spin), 1)
+        rng.addWidget(field("până la", self.upper_spin), 1)
         g.addLayout(rng)
-        toggles = _group(2)
-        self.largest_check = ToggleSwitch("Doar cea mai mare componentă")
+        col.addWidget(sec, 1)
+        col.addWidget(separator())
+
+        # curatarea mastii
+        sec, g = _column((20, 10, 20, 12), 0)
+        g.addLayout(_section("Curățare"))
+        g.addSpacing(4)
+        self.largest_check = CheckRow("Doar cea mai mare componentă")
         self.largest_check.setChecked(True)
-        self.outside_check = ToggleSwitch("Exclude aerul din jurul corpului")
-        self.fill_check = ToggleSwitch("Umple golurile")
-        for t in (self.largest_check, self.outside_check, self.fill_check):
-            toggles.addWidget(t)
-        g.addLayout(toggles)
+        self.outside_check = CheckRow("Fără aerul din jurul corpului")
+        self.fill_check = CheckRow("Umple golurile")
+        for c in (self.largest_check, self.outside_check, self.fill_check):
+            g.addWidget(c)
+        g.addSpacing(6)
         self.sigma_spin = ValueSlider("Netezire imagine", 0, 5, step=0.5, suffix=" mm", decimals=1)
         self.sigma_spin.setToolTip("Netezire gaussiană a imaginii înainte de prag (reduce zgomotul)")
         g.addWidget(self.sigma_spin)
-        col.addLayout(g)
+        col.addWidget(sec)
+        col.addWidget(separator())
 
-        # 3. modelul
-        g = _group(16)
-        g.addLayout(self._section("3", "Model 3D"))
+        # modelul
+        sec, g = _column((20, 10, 20, 12), 8)
+        g.addLayout(_section("Model"))
         self.smooth_spin = ValueSlider("Netezire suprafață", 0, 100, value=20)
         self.smooth_spin.setToolTip("Iterații de netezire a suprafeței generate")
         self.decim_spin = ValueSlider("Simplificare", 0, 95, value=0, suffix=" %")
         self.decim_spin.setToolTip("Procentul de triunghiuri eliminate (fișier STL mai mic)")
         g.addWidget(self.smooth_spin)
         g.addWidget(self.decim_spin)
-        col.addLayout(g)
-        col.addStretch(1)
+        col.addWidget(sec)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -266,14 +278,14 @@ class MainWindow(QMainWindow):
         foot = QFrame()
         foot.setObjectName("sidebarFooter")
         f = QVBoxLayout(foot)
-        f.setContentsMargins(16, 12, 16, 16)
-        f.setSpacing(12)
+        f.setContentsMargins(20, 8, 20, 14)
+        f.setSpacing(10)
         self.banner = Banner()
         f.addWidget(self.banner)
         self.build_btn = QPushButton(" Generează model 3D")
         self.build_btn.setProperty("variant", "primary")
         self.build_btn.setIcon(icons.icon("cube", theme.ACCENT_INK, theme.FAINT))
-        self.build_btn.setIconSize(QSize(18, 18))
+        self.build_btn.setIconSize(QSize(16, 16))
         self.build_btn.setToolTip("Segmentează și construiește suprafața 3D (Ctrl+G)")
         self.build_btn.setCursor(Qt.PointingHandCursor)
         self.build_btn.clicked.connect(self.build_model)
@@ -289,44 +301,44 @@ class MainWindow(QMainWindow):
             check.toggled.connect(self._mark_stale)
         return side
 
-    def _viewport(self, title: str, header_widgets, content: QWidget, footer: QWidget) -> QFrame:
+    def _viewport(self, title: str, header_widgets, content: QWidget,
+                  footer: QWidget | None = None) -> QFrame:
         frame = QFrame()
         frame.setObjectName("viewport")
         lay = QVBoxLayout(frame)
-        lay.setContentsMargins(1, 1, 1, 1)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         head = QFrame()
         head.setObjectName("vpHeader")
-        head.setFixedHeight(44)
+        head.setFixedHeight(34)
         h = QHBoxLayout(head)
-        h.setContentsMargins(14, 0, 8, 0)
-        h.setSpacing(8)
-        h.addWidget(label(title, "vpTitle"))
+        h.setContentsMargins(12, 0, 8, 0)
+        h.setSpacing(12)
+        h.addWidget(label(title, "h"))
         h.addStretch(1)
         for w in header_widgets:
-            h.addWidget(w)
+            h.addWidget(w, 0, Qt.AlignBottom if isinstance(w, SegmentedControl) else Qt.AlignVCenter)
         lay.addWidget(head)
         lay.addWidget(content, 1)
-        footer.setObjectName("vpFooter")
-        footer.setFixedHeight(40)
-        lay.addWidget(footer)
+        if footer is not None:
+            footer.setObjectName("vpFooter")
+            footer.setFixedHeight(40)
+            lay.addWidget(footer)
         return frame
 
     def _build_stage(self) -> QWidget:
-        stage = QWidget()
-        lay = QVBoxLayout(stage)
-        lay.setContentsMargins(10, 10, 10, 10)
-
-        self.window_seg = SegmentedControl(WINDOWS.keys(), current="Țesut moale")
+        self.window_seg = SegmentedControl(WINDOWS.keys(), current="Os")
+        self.window_seg.setToolTip("Fereastra CT a feliei (se schimbă și odată cu țesutul)")
         self.window_seg.currentTextChanged.connect(self._on_window_changed)
-        self.slice_view.set_window(*WINDOWS["Țesut moale"], "Țesut moale")
+        self.slice_view.set_window(*WINDOWS["Os"], "Os")
         self.slice_view.canvas.openRequested.connect(lambda: self.open_folder())
-        vp2d = self._viewport("Axial", [self.window_seg], self.slice_view.canvas,
-                              self.slice_view.footer)
+        vp2d = self._viewport("Axial", [self.window_seg], self.slice_view)
 
         self.view_seg = SegmentedControl(VIEWS.keys(), checkable=False)
         self.view_seg.setToolTip("Rotește camera spre o vedere standard")
         self.view_seg.clicked.connect(self.view3d.set_view)
+        line = separator(vertical=True)
+        line.setFixedHeight(16)
         reset_btn = icon_button("reset", "Resetează camera (R)")
         reset_btn.clicked.connect(self.view3d.reset_camera)
         self.shot_btn = icon_button("camera", "Salvează o captură PNG a modelului")
@@ -337,38 +349,36 @@ class MainWindow(QMainWindow):
         f.setContentsMargins(14, 0, 12, 0)
         f.setSpacing(10)
         self.model_dot = label()
-        self.model_name = label("", "muted")
-        self.stats_label = label("Încă niciun model.", "faint")
-        # textul lung nu are voie sa largeasca viewport-ul (ar strica impartirea egala)
-        self.stats_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.model_name = label("", "h")
+        self.stats_label = ElidedLabel("Încă niciun model.", "faint")
+        self.stats_label.setFont(theme.num_font(13))
         f.addWidget(self.model_dot)
         f.addWidget(self.model_name)
         f.addWidget(self.stats_label, 1)
-        f.addWidget(label("Opacitate", "faint"))
+        f.addWidget(label("Opacitate", "muted"))
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(10, 100)
         self.opacity_slider.setValue(100)
-        self.opacity_slider.setFixedWidth(110)
+        self.opacity_slider.setFixedWidth(96)
         self.opacity_slider.setCursor(Qt.PointingHandCursor)
         guard_wheel(self.opacity_slider)
-        self.opacity_value = label("100 %", "value")
-        self.opacity_value.setFixedWidth(42)
+        self.opacity_value = value_label("100 %", 13, muted=False)
+        self.opacity_value.setFixedWidth(40)
         self.opacity_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.opacity_slider.valueChanged.connect(self._on_opacity)
         f.addWidget(self.opacity_slider)
         f.addWidget(self.opacity_value)
-        vp3d = self._viewport("Model 3D", [self.view_seg, reset_btn, self.shot_btn],
+        vp3d = self._viewport("Model 3D", [self.view_seg, line, reset_btn, self.shot_btn],
                               self.view3d, foot)
 
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(10)
+        self.splitter.setHandleWidth(1)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(vp2d)
         self.splitter.addWidget(vp3d)
         self.splitter.setStretchFactor(0, 1)
         self.splitter.setStretchFactor(1, 1)
-        lay.addWidget(self.splitter)
-        return stage
+        return self.splitter
 
     def _build_statusbar(self):
         sb = self.statusBar()
@@ -379,11 +389,11 @@ class MainWindow(QMainWindow):
         w.setContentsMargins(10, 0, 0, 0)
         w.setSpacing(6)
         self.status_dot = StatusDot()
-        self.status_label = label("", "muted")
+        self.status_label = ElidedLabel("")
         w.addWidget(self.status_dot)
-        w.addWidget(self.status_label)
+        w.addWidget(self.status_label, 1)
         sb.addWidget(wrap, 1)
-        self.params_label = label("", "version")
+        self.params_label = value_label("", 12)
         sb.addPermanentWidget(self.params_label)
 
     def _build_actions(self):
@@ -410,8 +420,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # fereastra ingusta: panoul lateral se strange, iar viewport-urile trec unul sub altul
-        self.sidebar.setFixedWidth(SIDEBAR_WIDTH if self.width() >= 1180 else 276)
+        # fereastra ingusta: panoul lateral se strange, iar vederile trec una sub alta
+        self.sidebar.setFixedWidth(SIDEBAR_WIDTH if self.width() >= 1180 else SIDEBAR_NARROW)
         stage_w = self.width() - self.sidebar.width()
         orient = Qt.Vertical if stage_w < STACK_BELOW else Qt.Horizontal
         if self.splitter.orientation() != orient:
@@ -490,34 +500,32 @@ class MainWindow(QMainWindow):
         self._update_banner()
         self._show_model_info()
         self.slice_view.set_volume(volume.array, volume.spacing, volume.direction)
-        self.histogram.set_values(volume.array[:, ::4, ::4])
+        self.ruler.set_values(volume.array[:, ::4, ::4])
 
         x, y, z = volume.shape_xyz
         sx, sy, sz = volume.spacing
         info = volume.info
         desc = (info.description if info else "") or "Serie fără descriere"
-        self.series_values["Dimensiune"].setText(f"{x} × {y} × {z}")
-        self.series_values["Spațiere"].setText(f"{sx:.2f} × {sy:.2f} × {sz:.2f} mm")
-        self.series_values["Valori"].setText(
-            f"{fmt_hu(volume.array.min())} … {fmt_hu(volume.array.max())} HU")
-        self.modality_pill.setText(info.modality if info and info.modality else "?")
+        modality = info.modality if info and info.modality else "?"
+        meta = (f"{x} × {y} × {z}  ·  {fmt_num(sx, 2)} × {fmt_num(sy, 2)} × {fmt_num(sz, 2)} mm  ·  "
+                f"{fmt_hu(volume.array.min())} … {fmt_hu(volume.array.max())} HU")
+        self.modality_label.setText(modality)
         self.series_title.setText(desc)
-        folder = Path(getattr(self, "_folder", "") or ".").name
-        self.series_meta.setText(f"·  {z} felii  ·  {folder}")
-        for w in (self.modality_pill, self.series_title, self.series_meta):
+        self.series_meta.setText(meta)
+        self.series_meta.setToolTip(f"{meta}  ·  {Path(getattr(self, '_folder', '') or '.').name}")
+        for w in (self.series_sep, self.modality_label, self.series_title):
             w.show()
+        self._summary = f"{desc} | {modality} | {meta}"
         self.setWindowTitle(f"{desc} – DICOM3D")
-        self.histogram.set_range(self.lower_spin.value(), self.upper_spin.value())
+        self.ruler.set_range(self.lower_spin.value(), self.upper_spin.value())
         self._update_preview()
         self._set_busy(False)
-        self._set_status("Serie încărcată. Alege țesutul, ajustează pragul și generează modelul 3D.",
-                         "ok")
+        self._set_status("Serie încărcată. Alege țesutul pe scala Hounsfield, ajustează pragul și "
+                         "generează modelul 3D.", "ok")
 
     def series_summary(self) -> str:
         """Rezumatul seriei pe un rand (folosit de playtest)."""
-        parts = [self.series_title.text(), self.modality_pill.text()]
-        parts += [f"{k}: {v.text()}" for k, v in self.series_values.items()]
-        return " | ".join(parts)
+        return self._summary
 
     def build_model(self):
         if self.volume is None or self._busy:
@@ -545,7 +553,7 @@ class MainWindow(QMainWindow):
             smoothing_iterations=int(self.smooth_spin.value()),
             decimation=self.decim_spin.value() / 100,
         )
-        self._building_tissue = self.tissue_chips.current()
+        self._building_tissue = self.ruler.current()
         self._building_params = (lo, hi, opts.smoothing_iterations, self.decim_spin.value())
         self._set_busy(True, "Segmentez și generez suprafața (Marching Cubes)…")
         self._build_started = _now()
@@ -556,7 +564,7 @@ class MainWindow(QMainWindow):
         self._stale = False
         self._built_tissue = self._building_tissue
         self._set_busy(False)
-        color = theme.TISSUE_COLORS.get(self._built_tissue, theme.ACCENT)
+        color = theme.TISSUE_COLORS.get(self._built_tissue, theme.TEXT)
         self.slice_view.set_overlay_color(color)
         self.slice_view.set_mask(result.mask)
         self.view3d.set_mesh(result.mesh, color)
@@ -566,7 +574,7 @@ class MainWindow(QMainWindow):
         lo, hi, it, dec = self._building_params
         self.params_label.setText(
             f"{fmt_hu(lo)} … {fmt_hu(hi)} HU  ·  netezire {it}  ·  simplificare {dec} %   ")
-        self._set_status(f"Model 3D generat în {_now() - self._build_started:.1f} s.", "ok")
+        self._set_status(f"Model 3D generat în {fmt_num(_now() - self._build_started, 1)} s.", "ok")
 
     def export_model(self):
         if self.result is None:
@@ -604,9 +612,9 @@ class MainWindow(QMainWindow):
 
     def _apply_preset(self, name: str, animate: bool = True):
         p = PRESETS[name]
-        self.tissue_chips.set_current(name)
-        color = theme.TISSUE_COLORS.get(name, theme.ACCENT)
-        self.histogram.set_color(color)
+        self.ruler.set_current(name)
+        color = theme.TISSUE_COLORS.get(name, theme.TEXT)
+        self.ruler.set_color(color)
         if self.result is None or self._stale:
             self.slice_view.set_overlay_color(color)
         self.outside_check.setChecked(p.exclude_outside)
@@ -614,17 +622,18 @@ class MainWindow(QMainWindow):
             spin.blockSignals(True)
             spin.setValue(int(value))
             spin.blockSignals(False)
-        self.histogram.set_range(p.lower, p.upper, animate=animate)
+        self.ruler.set_range(p.lower, p.upper, animate=animate)
+        self.window_seg.setCurrentText(PRESET_WINDOW.get(name, "Țesut moale"))
         self._mark_stale()
         self._update_preview()
 
-    def _on_histogram_edit(self, lo: int, hi: int):
+    def _on_ruler_edit(self, lo: int, hi: int):
         for spin, value in ((self.lower_spin, lo), (self.upper_spin, hi)):
             if spin.value() != value:
                 spin.setValue(value)
 
     def _on_threshold_changed(self):
-        self.histogram.set_range(self.lower_spin.value(), self.upper_spin.value())
+        self.ruler.set_range(self.lower_spin.value(), self.upper_spin.value())
         self._preview_timer.start()
 
     def _on_window_changed(self, name: str):
@@ -639,8 +648,7 @@ class MainWindow(QMainWindow):
         if self.result is None:
             return
         self._stale = True
-        self.slice_view.set_overlay_color(theme.TISSUE_COLORS.get(self.tissue_chips.current(),
-                                                                  theme.ACCENT))
+        self.slice_view.set_overlay_color(theme.TISSUE_COLORS.get(self.ruler.current(), theme.TEXT))
         self._update_banner()
 
     def _update_banner(self):
@@ -656,23 +664,18 @@ class MainWindow(QMainWindow):
             self.model_dot.clear()
             self.model_name.setText("")
             self.stats_label.setText("Încă niciun model.")
-            self.stats_label.setProperty("role", "faint")
-        else:
-            s = self.result.stats
-            color = theme.TISSUE_COLORS.get(self._built_tissue, theme.ACCENT)
-            self.model_dot.setPixmap(icons.dot(color, 12).pixmap(12, 12))
-            self.model_name.setText(theme.TISSUE_LABELS.get(self._built_tissue, self._built_tissue))
-            n = s["triangles"]
-            tri = f"{n / 1e6:.1f} mil." if n >= 1_000_000 else _fmt_int(n)
-            self.stats_label.setText(
-                f"{tri} triunghiuri  ·  {_fmt_int(round(s['volume_ml']))} ml  ·  "
-                f"{_fmt_int(round(s['surface_mm2'] / 100))} cm²")
-            self.stats_label.setToolTip(
-                f"{_fmt_int(n)} triunghiuri, volum {s['volume_ml']:.1f} ml, "
-                f"suprafață {s['surface_mm2'] / 100:.1f} cm²")
-            self.stats_label.setProperty("role", "value")
-        self.stats_label.style().unpolish(self.stats_label)
-        self.stats_label.style().polish(self.stats_label)
+            self.stats_label.setToolTip("")
+            return
+        s = self.result.stats
+        color = theme.TISSUE_COLORS.get(self._built_tissue, theme.TEXT)
+        self.model_dot.setPixmap(icons.swatch(color, 8))
+        self.model_name.setText(theme.TISSUE_LABELS.get(self._built_tissue, self._built_tissue))
+        n = s["triangles"]
+        tri = f"{fmt_num(n / 1e6, 1)} mil." if n >= 1_000_000 else fmt_int(n)
+        self.stats_label.setText(f"{tri} triunghiuri  ·  {fmt_num(s['volume_ml'], 1)} ml")
+        self.stats_label.setToolTip(
+            f"{fmt_int(n)} triunghiuri, volum {fmt_num(s['volume_ml'], 1)} ml, "
+            f"suprafață {fmt_num(s['surface_mm2'] / 100, 1)} cm²")
 
     def _update_preview(self):
         if self.volume is None:
