@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all-components", action="store_true",
                     help="nu pastra doar cea mai mare componenta conexa")
     ap.add_argument("--fill-holes", action="store_true")
+    ap.add_argument("--exclude-outside", action=argparse.BooleanOptionalAction, default=None,
+                    help="elimina aerul din jurul corpului (implicit: dupa preset)")
     ap.add_argument("--sigma", type=float, default=0.0, help="netezire gaussiana (mm)")
     ap.add_argument("--smooth", type=int, default=20, help="iteratii netezire mesh")
     ap.add_argument("--decimate", type=float, default=0.0, help="fractiune 0..0.95")
@@ -38,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         keep_largest=not args.all_components,
         fill_holes=args.fill_holes,
         smoothing_sigma_mm=args.sigma,
+        exclude_outside=(preset.exclude_outside if args.exclude_outside is None
+                         else args.exclude_outside),
     )
 
     t0 = time.perf_counter()

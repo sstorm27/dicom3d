@@ -19,6 +19,7 @@ class ThresholdParams:
     keep_largest: bool = True
     fill_holes: bool = False
     smoothing_sigma_mm: float = 0.0
+    exclude_outside: bool = False
 
 
 @dataclass
@@ -40,6 +41,7 @@ def reconstruct(
         keep_largest=params.keep_largest,
         fill_holes=params.fill_holes,
         smoothing_sigma_mm=params.smoothing_sigma_mm,
+        exclude_outside=params.exclude_outside,
     )
     mesh = marching_cubes(mask, volume.spacing, volume.origin, volume.direction, mesh_options)
     return ReconstructionResult(mask, mesh, mesh_stats(mesh))

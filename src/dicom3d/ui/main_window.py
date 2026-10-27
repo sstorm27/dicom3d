@@ -121,8 +121,10 @@ class MainWindow(QMainWindow):
         self.largest_check = QCheckBox("Pastreaza cea mai mare componenta")
         self.largest_check.setChecked(True)
         self.fill_check = QCheckBox("Umple golurile")
+        self.outside_check = QCheckBox("Exclude aerul din jurul corpului")
         f.addRow(self.largest_check)
         f.addRow(self.fill_check)
+        f.addRow(self.outside_check)
         self.sigma_spin = QDoubleSpinBox(minimum=0, maximum=5, singleStep=0.5, decimals=1)
         self.sigma_spin.setSuffix(" mm")
         self.sigma_spin.setToolTip("Netezire gaussiana a imaginii inainte de prag (reduce zgomotul)")
@@ -232,6 +234,7 @@ class MainWindow(QMainWindow):
             keep_largest=self.largest_check.isChecked(),
             fill_holes=self.fill_check.isChecked(),
             smoothing_sigma_mm=self.sigma_spin.value(),
+            exclude_outside=self.outside_check.isChecked(),
         )
         opts = MeshOptions(
             smoothing_iterations=self.smooth_spin.value(),
@@ -276,6 +279,7 @@ class MainWindow(QMainWindow):
 
     def _apply_preset(self, name: str):
         p = PRESETS[name]
+        self.outside_check.setChecked(p.exclude_outside)
         for spin, value in ((self.lower_spin, p.lower), (self.upper_spin, p.upper)):
             spin.blockSignals(True)
             spin.setValue(int(value))
