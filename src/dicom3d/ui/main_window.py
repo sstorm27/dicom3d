@@ -34,6 +34,8 @@ from dicom3d.ui.slice_view import SliceView
 from dicom3d.ui.view3d import View3D
 from dicom3d.ui.worker import Worker
 
+LARGE_MESH_TRIANGLES = 2_000_000
+
 # fereastra de afisare 2D: (latime, centru) in HU
 WINDOWS = {
     "Tesut moale": (400, 40),
@@ -112,7 +114,10 @@ class MainWindow(QMainWindow):
         f = QFormLayout(g_seg)
         self.preset_combo = QComboBox()
         self.preset_combo.addItems(PRESETS.keys())
-        self.preset_combo.currentTextChanged.connect(self._apply_preset)
+        # activated (nu currentTextChanged): re-alegerea aceluiasi tesut reface pragurile
+        self.preset_combo.activated.connect(
+            lambda i: self._apply_preset(self.preset_combo.itemText(i))
+        )
         f.addRow("Tesut:", self.preset_combo)
         self.lower_spin = self._hu_spin()
         self.upper_spin = self._hu_spin()
@@ -228,6 +233,17 @@ class MainWindow(QMainWindow):
     def build_model(self):
         if self.volume is None:
             return
+        if self.lower_spin.value() > self.upper_spin.value():
+            QMessageBox.warning(self, "DICOM3D",
+                                "Pragul inferior trebuie sa fie mai mic decat pragul superior.")
+            return
+        lo, hi = self.lower_spin.value(), self.upper_spin.value()
+        if not ((self.volume.array >= lo) & (self.volume.array <= hi)).any():
+            QMessageBox.warning(self, "DICOM3D",
+                                f"Niciun voxel nu are valori intre {lo} si {hi} HU.\n"
+                                f"Valorile din serie sunt intre {self.volume.array.min():.0f} "
+                                f"si {self.volume.array.max():.0f}.")
+            return
         params = ThresholdParams(
             lower=self.lower_spin.value(),
             upper=self.upper_spin.value(),
@@ -254,6 +270,9 @@ class MainWindow(QMainWindow):
             f"Triunghiuri: {s['triangles']:,}\n"
             f"Volum model: {s['volume_ml']:.1f} ml\n"
             f"Suprafata: {s['surface_mm2'] / 100:.1f} cm²"
+            + (f"\n\nModel foarte mare: rotirea si exportul pot fi lente. "
+               f"Folositi Decimare sau un prag mai strict."
+               if s["triangles"] > LARGE_MESH_TRIANGLES else "")
         )
         self.statusBar().showMessage("Model 3D generat.")
 

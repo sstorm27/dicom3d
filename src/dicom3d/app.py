@@ -45,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv if argv is None else argv
         app = QApplication(argv)
         app.setApplicationName("DICOM3D")
+        if len(argv) > 1 and argv[1] == "--playtest":  # --playtest <folder_dicom> <folder_iesire>
+            from dicom3d.playtest import run as run_playtest
+
+            return run_playtest(app, argv[2], argv[3])
         win = MainWindow()
         win.show()
         print("Fereastra principala afisata", flush=True)

@@ -23,6 +23,12 @@ class Worker(QRunnable):
             result = self.fn(*self.args, **self.kwargs)
         except Exception as exc:  # noqa: BLE001 - orice eroare ajunge la utilizator
             traceback.print_exc()
-            self.signals.failed.emit(str(exc) or type(exc).__name__)
+            self._emit(self.signals.failed, str(exc) or type(exc).__name__)
         else:
-            self.signals.finished.emit(result)
+            self._emit(self.signals.finished, result)
+
+    def _emit(self, signal, value):
+        try:
+            signal.emit(value)
+        except RuntimeError:
+            pass  # fereastra a fost inchisa intre timp; rezultatul nu mai are destinatar

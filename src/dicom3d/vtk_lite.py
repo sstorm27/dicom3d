@@ -20,6 +20,7 @@ from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkCommonTransforms import vtkTransform
 from vtkmodules.vtkFiltersCore import (
     vtkFeatureEdges,
+    vtkFlyingEdges3D,
     vtkMarchingCubes,
     vtkMassProperties,
     vtkPolyDataNormals,
@@ -32,6 +33,11 @@ from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
 from vtkmodules.vtkInteractionWidgets import vtkOrientationMarkerWidget
 from vtkmodules.vtkIOPLY import vtkPLYWriter
 from vtkmodules.vtkRenderingAnnotation import vtkAxesActor
-from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper, vtkRenderer
+from vtkmodules.vtkRenderingCore import (
+    vtkActor,
+    vtkPolyDataMapper,
+    vtkRenderer,
+    vtkWindowToImageFilter,
+)
 
 __all__ = [name for name in dir() if name.startswith(("vtk", "VTK_"))]
