@@ -150,7 +150,7 @@ class MainWindow(QMainWindow):
 
         self.build_btn = QPushButton("Genereaza model 3D")
         self.build_btn.clicked.connect(self.build_model)
-        self.export_btn = QPushButton("Exporta STL...")
+        self.export_btn = QPushButton("Exporta model 3D...")
         self.export_btn.clicked.connect(self.export_model)
         lay.addWidget(self.build_btn)
         lay.addWidget(self.export_btn)
@@ -162,6 +162,11 @@ class MainWindow(QMainWindow):
 
         self.lower_spin.valueChanged.connect(self._preview_timer_start)
         self.upper_spin.valueChanged.connect(self._preview_timer_start)
+        for spin in (self.lower_spin, self.upper_spin, self.sigma_spin, self.smooth_spin,
+                     self.decim_spin):
+            spin.valueChanged.connect(self._mark_stale)
+        for check in (self.largest_check, self.fill_check, self.outside_check):
+            check.toggled.connect(self._mark_stale)
         self._apply_preset(self.preset_combo.currentText())
         return panel
 
@@ -266,7 +271,7 @@ class MainWindow(QMainWindow):
         self.view3d.set_mesh(result.mesh)
         self.view3d.set_opacity(self.opacity_slider.value() / 100)
         s = result.stats
-        self.stats_label.setText(
+        self._stats_text = (
             f"Triunghiuri: {s['triangles']:,}\n"
             f"Volum model: {s['volume_ml']:.1f} ml\n"
             f"Suprafata: {s['surface_mm2'] / 100:.1f} cm²"
@@ -274,6 +279,7 @@ class MainWindow(QMainWindow):
                f"Folositi Decimare sau un prag mai strict."
                if s["triangles"] > LARGE_MESH_TRIANGLES else "")
         )
+        self.stats_label.setText(self._stats_text)
         self.statusBar().showMessage("Model 3D generat.")
 
     def export_model(self):
@@ -303,7 +309,18 @@ class MainWindow(QMainWindow):
             spin.blockSignals(True)
             spin.setValue(int(value))
             spin.blockSignals(False)
+        self._mark_stale()
         self._update_preview()
+
+    def _mark_stale(self):
+        """Modelul afisat nu mai corespunde setarilor din panou."""
+        if self.result is None:
+            return
+        self.stats_label.setText(
+            self._stats_text
+            + "\n\nSetarile s-au schimbat dupa generare. Apasati Genereaza ca modelul "
+            "sa le urmeze; exportul salveaza modelul afisat acum."
+        )
 
     def _preview_timer_start(self):
         self._preview_timer.start()
