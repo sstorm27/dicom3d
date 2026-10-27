@@ -23,6 +23,10 @@ def _setup_crash_log() -> Path:
     faulthandler.enable(log)  # prinde si caderile din codul nativ (Qt, VTK)
     if sys.stdout is None:  # executabil fara consola
         sys.stdout = sys.stderr = log
+    for stream in (sys.stdout, sys.stderr):
+        # consola Windows (cp1252) nu are diacriticele romanesti (ă, ț): le inlocuim, nu cadem
+        if stream is not log and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
 
     def excepthook(exc_type, exc, tb):
         text = "".join(traceback.format_exception(exc_type, exc, tb))

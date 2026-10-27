@@ -63,3 +63,17 @@ def test_histogram_drag_keeps_lower_below_upper(app):
     h._drag = 0
     h._drag_to(h._x(1500))  # manerul de jos tras peste cel de sus
     assert edits[-1][0] <= edits[-1][1] == 200
+
+
+def test_console_without_romanian_letters_does_not_crash(tmp_path):
+    """Consola Windows foloseste cp1252, fara ă si ț; playtest-ul scrie mesaje cu diacritice."""
+    import subprocess
+    import sys
+
+    script = (
+        "import pathlib, dicom3d.app as a; a._log_dir = lambda: pathlib.Path(r'%s'); "
+        "a._setup_crash_log(); print('Serie fără descriere, țesut')" % tmp_path
+    )
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
