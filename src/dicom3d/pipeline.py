@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-import vtk
+from dicom3d import vtk_lite as vtk
 
 from dicom3d.io.dicom_loader import Volume
 from dicom3d.mesh.surface import MeshOptions, marching_cubes, mesh_stats

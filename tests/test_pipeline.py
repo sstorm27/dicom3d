@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-import vtk
+from vtkmodules.vtkFiltersCore import vtkFeatureEdges
+from vtkmodules.vtkIOGeometry import vtkOBJReader, vtkSTLReader
 
 from dicom3d.io.dicom_loader import Volume, find_series, load_folder
 from dicom3d.mesh.surface import MeshOptions, export_mesh, marching_cubes, mesh_stats
@@ -70,10 +71,10 @@ def test_stl_roundtrip_is_closed(phantom_dir, tmp_path):
     vol = load_folder(phantom_dir)
     result = reconstruct(vol, ThresholdParams(250, 3000))
     path = export_mesh(result.mesh, tmp_path / "os.stl")
-    reader = vtk.vtkSTLReader()
+    reader = vtkSTLReader()
     reader.SetFileName(str(path))
     reader.Update()
-    edges = vtk.vtkFeatureEdges()
+    edges = vtkFeatureEdges()
     edges.SetInputConnection(reader.GetOutputPort())
     edges.BoundaryEdgesOn()
     edges.FeatureEdgesOff()
@@ -95,3 +96,17 @@ def test_exclude_outside_keeps_only_internal_air():
     lungs = threshold_mask(volume, -1000, -400, exclude_outside=True)
     cavity = (x - 32) ** 2 + (y - 32) ** 2 < 8**2
     assert np.array_equal(lungs.astype(bool), cavity)
+
+
+@pytest.mark.parametrize("ext,reader_cls", [(".stl", vtkSTLReader), (".obj", vtkOBJReader)])
+def test_exported_file_matches_mesh(phantom_dir, tmp_path, ext, reader_cls):
+    vol = load_folder(phantom_dir)
+    result = reconstruct(vol, ThresholdParams(250, 3000))
+    path = export_mesh(result.mesh, tmp_path / f"os{ext}")
+    reader = reader_cls()
+    reader.SetFileName(str(path))
+    reader.Update()
+    out = reader.GetOutput()
+    assert out.GetNumberOfPolys() == result.stats["triangles"]
+    assert mesh_stats(out)["volume_ml"] == pytest.approx(result.stats["volume_ml"], rel=1e-3)
+    assert out.GetBounds() == pytest.approx(result.mesh.GetBounds(), abs=1e-3)

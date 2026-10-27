@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import vtk
-from vtk.util import numpy_support
+from vtkmodules.util import numpy_support
+
+from dicom3d import vtk_lite as vtk
 
 
 @dataclass
@@ -124,19 +125,56 @@ def export_mesh(poly: vtk.vtkPolyData, path: str | Path) -> Path:
     """Salveaza mesh-ul; formatul se alege dupa extensie (.stl, .obj, .ply)."""
     path = Path(path)
     ext = path.suffix.lower()
-    if ext == ".stl":
-        writer = vtk.vtkSTLWriter()
-        writer.SetFileTypeToBinary()
-    elif ext == ".ply":
-        writer = vtk.vtkPLYWriter()
-        writer.SetFileTypeToBinary()
-    elif ext == ".obj":
-        writer = vtk.vtkOBJWriter()
-    else:
+    if ext not in (".stl", ".obj", ".ply"):
         raise ValueError(f"Format necunoscut: {ext} (folositi .stl, .obj sau .ply)")
     path.parent.mkdir(parents=True, exist_ok=True)
-    writer.SetFileName(str(path))
-    writer.SetInputData(poly)
-    if writer.Write() != 1:
-        raise IOError(f"Nu am putut scrie {path}")
+    if ext == ".ply":
+        writer = vtk.vtkPLYWriter()
+        writer.SetFileTypeToBinary()
+        writer.SetFileName(str(path))
+        writer.SetInputData(poly)
+        if writer.Write() != 1:
+            raise IOError(f"Nu am putut scrie {path}")
+        return path
+    # STL si OBJ le scriem direct: writer-ele VTK sunt in vtkIOGeometry, care trage
+    # dupa el module blocate de Smart App Control pe Windows (vezi vtk_lite.py)
+    points, triangles = mesh_arrays(poly)
+    if ext == ".stl":
+        _write_stl(path, points, triangles)
+    else:
+        _write_obj(path, points, triangles)
     return path
+
+
+def mesh_arrays(poly: vtk.vtkPolyData) -> tuple[np.ndarray, np.ndarray]:
+    """Varfurile (N, 3) si triunghiurile (M, 3, indici) ale mesh-ului."""
+    tri = vtk.vtkTriangleFilter()
+    tri.SetInputData(poly)
+    tri.PassVertsOff()
+    tri.PassLinesOff()
+    tri.Update()
+    out = tri.GetOutput()
+    points = numpy_support.vtk_to_numpy(out.GetPoints().GetData()).astype(np.float64)
+    conn = numpy_support.vtk_to_numpy(out.GetPolys().GetConnectivityArray())
+    return points, conn.reshape(-1, 3).astype(np.int64)
+
+
+def _write_stl(path: Path, points: np.ndarray, triangles: np.ndarray):
+    v = points[triangles]  # (M, 3, 3)
+    normals = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.divide(normals, lengths, out=np.zeros_like(normals), where=lengths > 0)
+    record = np.dtype([("normal", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
+    data = np.zeros(len(triangles), dtype=record)
+    data["normal"], data["v"] = normals, v
+    with open(path, "wb") as f:
+        f.write(b"DICOM3D binary STL".ljust(80, b" "))
+        f.write(np.uint32(len(triangles)).tobytes())
+        f.write(data.tobytes())
+
+
+def _write_obj(path: Path, points: np.ndarray, triangles: np.ndarray):
+    with open(path, "w", encoding="ascii") as f:
+        f.write("# DICOM3D\n")
+        np.savetxt(f, points, fmt="v %.6f %.6f %.6f")
+        np.savetxt(f, triangles + 1, fmt="f %d %d %d")  # OBJ numara de la 1

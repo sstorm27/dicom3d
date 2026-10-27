@@ -1,8 +1,8 @@
 # PyInstaller: construieste aplicatia Windows (folder dist/DICOM3D cu DICOM3D.exe).
 #   pyinstaller packaging/dicom3d.spec --noconfirm
-from PyInstaller.utils.hooks import collect_submodules
-
-hidden = collect_submodules("vtkmodules") + ["SimpleITK", "pydicom"]
+# Nu includem toate modulele VTK: dicom3d.vtk_lite le importa explicit pe cele
+# folosite, iar PyInstaller le gaseste singur (vezi comentariul din vtk_lite.py).
+hidden = ["SimpleITK", "pydicom"]
 
 a = Analysis(
     ["launcher.py"],

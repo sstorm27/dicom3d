@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import vtk
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+
+from dicom3d import vtk_lite as vtk
 
 
 class View3D(QWidget):
