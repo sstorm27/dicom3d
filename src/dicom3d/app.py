@@ -23,6 +23,10 @@ def _setup_crash_log() -> Path:
     faulthandler.enable(log)  # prinde si caderile din codul nativ (Qt, VTK)
     if sys.stdout is None:  # executabil fara consola
         sys.stdout = sys.stderr = log
+    for stream in (sys.stdout, sys.stderr):
+        # consola Windows (cp1252) nu are diacriticele romanesti (ă, ț): le inlocuim, nu cadem
+        if stream is not log and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
 
     def excepthook(exc_type, exc, tb):
         text = "".join(traceback.format_exception(exc_type, exc, tb))
@@ -40,11 +44,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from PySide6.QtWidgets import QApplication
 
+        from dicom3d.ui import theme
+        from dicom3d.ui.icons import app_icon
         from dicom3d.ui.main_window import MainWindow
 
         argv = sys.argv if argv is None else argv
         app = QApplication(argv)
         app.setApplicationName("DICOM3D")
+        theme.apply(app)
+        app.setWindowIcon(app_icon())
         if len(argv) > 1 and argv[1] == "--playtest":  # --playtest <folder_dicom> <folder_iesire>
             from dicom3d.playtest import run as run_playtest
 
