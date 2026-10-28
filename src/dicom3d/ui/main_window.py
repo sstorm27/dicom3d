@@ -78,7 +78,7 @@ PRESET_WINDOW = {
     "Piele": "Țesut moale",
 }
 
-STALE_TEXT = "Setările s-au schimbat după generare. Generează din nou ca modelul să le urmeze."
+STALE_TEXT = "Modelul nu mai corespunde setărilor. Generează-l din nou."
 LARGE_TEXT = ("Model foarte mare: rotirea și exportul pot fi lente. "
               "Mărește Simplificarea sau folosește un prag mai strict.")
 
@@ -128,8 +128,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_topbar())
         root.addWidget(self.busy_bar)
         body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
+        body.setContentsMargins(theme.GUTTER, 0, theme.GUTTER, theme.GUTTER)
+        body.setSpacing(theme.GUTTER)
         body.addWidget(self._build_sidebar())
         body.addWidget(self._build_stage(), 1)
         root.addLayout(body, 1)
@@ -165,9 +165,9 @@ class MainWindow(QMainWindow):
     def _build_topbar(self) -> QWidget:
         bar = QFrame()
         bar.setObjectName("topbar")
-        bar.setFixedHeight(44)
+        bar.setFixedHeight(48)
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(16, 0, 12, 0)
+        lay.setContentsMargins(16, 0, theme.GUTTER, 0)
         lay.setSpacing(12)
 
         logo = label()
@@ -359,7 +359,7 @@ class MainWindow(QMainWindow):
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(10, 100)
         self.opacity_slider.setValue(100)
-        self.opacity_slider.setFixedWidth(96)
+        self.opacity_slider.setFixedWidth(80)
         self.opacity_slider.setCursor(Qt.PointingHandCursor)
         guard_wheel(self.opacity_slider)
         self.opacity_value = value_label("100 %", 13, muted=False)
@@ -372,7 +372,7 @@ class MainWindow(QMainWindow):
                               self.view3d, foot)
 
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.setHandleWidth(1)
+        self.splitter.setHandleWidth(theme.GUTTER)
         self.splitter.setChildrenCollapsible(False)
         self.splitter.addWidget(vp2d)
         self.splitter.addWidget(vp3d)
@@ -672,7 +672,8 @@ class MainWindow(QMainWindow):
         self.model_name.setText(theme.TISSUE_LABELS.get(self._built_tissue, self._built_tissue))
         n = s["triangles"]
         tri = f"{fmt_num(n / 1e6, 1)} mil." if n >= 1_000_000 else fmt_int(n)
-        self.stats_label.setText(f"{tri} triunghiuri  ·  {fmt_num(s['volume_ml'], 1)} ml")
+        # volumul primul: daca nu e loc, se scurteaza numarul de triunghiuri
+        self.stats_label.setText(f"{fmt_num(s['volume_ml'], 1)} ml  ·  {tri} triunghiuri")
         self.stats_label.setToolTip(
             f"{fmt_int(n)} triunghiuri, volum {fmt_num(s['volume_ml'], 1)} ml, "
             f"suprafață {fmt_num(s['surface_mm2'] / 100, 1)} cm²")

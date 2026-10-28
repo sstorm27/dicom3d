@@ -1,9 +1,13 @@
 """Tema vizuala: culori, fonturi, durate de animatie si foaia de stil Qt.
 
 Directia „instrument de precizie": grafit aproape monocrom, colturi drepte,
-linii subtiri in loc de carduri. Singura culoare de pe ecran e tesutul ales
-(masca, rigla Hounsfield, modelul 3D); actiunile si selectia sunt albe.
+linii subtiri. Panoul lateral si cele doua vederi sunt blocuri separate de un
+culoar ingust. Singura culoare de pe ecran e tesutul ales (masca, rigla
+Hounsfield, modelul 3D); actiunile si selectia sunt albe.
 Spatierea urmeaza scara 4/8/12/16/20 px.
+
+Fonturile sunt instante statice (400/500/600) ale fontului variabil Instrument Sans
+(latime normala pentru text, semi-condensata pentru cifre), generate cu fontTools.
 """
 
 from __future__ import annotations
@@ -37,8 +41,9 @@ WARN = "#e8b04f"
 DANGER = "#e5636f"
 OVERLAY_TEXT = "#b8c2c0"  # textul din colturile feliei
 
-SANS = "Barlow"
-NUM = "Barlow Semi Condensed"  # cifre si valori, cu cifre de latime egala
+SANS = "Instrument Sans"
+NUM = "Instrument Sans SemiCondensed"  # cifre si valori, cu cifre de latime egala
+GUTTER = 8  # culoarul dintre panou si vederi
 
 # culoarea fiecarui tesut, aceeasi pe felie (masca), pe rigla HU si pe modelul 3D
 TISSUE_COLORS = {
@@ -102,8 +107,8 @@ QMainWindow, #central { background: @INK0; }
 QToolTip { background: @INK2; color: @TEXT; border: 1px solid @LINE_STRONG; border-radius: 2px;
            padding: 5px 8px; }
 
-#topbar { background: @INK0; border-bottom: 1px solid @LINE; }
-#sidebar { background: @INK1; border-right: 1px solid @LINE; }
+#topbar { background: @INK0; }
+#sidebar { background: @INK1; border: 1px solid @LINE; }
 #sidebarFooter { background: @INK1; }
 QScrollArea, #sidebarContent { background: transparent; border: none; }
 #sep { background: @LINE_SOFT; border: none; min-height: 1px; max-height: 1px; }
@@ -167,16 +172,16 @@ QScrollBar::handle:hover { background: @LINE_STRONG; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 
-QSplitter::handle { background: @LINE; }
+QSplitter::handle { background: transparent; }
 
-#viewport { background: #000000; }
+#viewport { background: #000000; border: 1px solid @LINE; }
 #vpHeader { background: @INK0; border-bottom: 1px solid @LINE_SOFT; }
 #vpFooter { background: #000000; }
 
 #banner { background: @WARN_BG; border: 1px solid @WARN_BORDER; border-radius: 2px; }
 #banner QLabel { font-size: 12px; color: @TEXT; }
 
-QStatusBar { background: @INK0; border-top: 1px solid @LINE; color: @MUTED; }
+QStatusBar { background: @INK0; color: @MUTED; }
 QStatusBar::item { border: none; }
 
 QDialog, QMessageBox, QInputDialog { background: @INK1; }

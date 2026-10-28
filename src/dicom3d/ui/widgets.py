@@ -121,10 +121,10 @@ class CheckRow(QCheckBox):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def sizeHint(self):
-        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + self.BOX + 12, 26)
+        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + self.BOX + 12, 24)
 
     def minimumSizeHint(self):
-        return QSize(self.BOX + 40, 26)
+        return QSize(self.BOX + 40, 24)
 
     def hitButton(self, pos):
         return self.rect().contains(pos)
@@ -216,7 +216,7 @@ class HounsfieldRuler(QWidget):
     LO, HI = -1024.0, 3071.0
     BINS = 160
     PAD = 10
-    AXIS = 44  # x-ul axei; la stanga ei stau valorile scalei
+    AXIS = 40  # x-ul axei; la stanga ei stau valorile scalei
     GRAB = 7  # px in jurul unui maner in care il poti apuca
     ROW = 16  # distanta minima intre numele presetarilor
 
@@ -234,14 +234,14 @@ class HounsfieldRuler(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumHeight(130)
+        self.setMinimumHeight(120)
         self.setAccessibleName("Scala Hounsfield: prag și presetări de țesut")
 
     def sizeHint(self):
         return QSize(248, 300)
 
     def minimumSizeHint(self):
-        return QSize(180, 130)
+        return QSize(180, 120)
 
     # ---------- API ----------
 
@@ -306,7 +306,7 @@ class HounsfieldRuler(QWidget):
 
     def _cols(self) -> dict[str, float]:
         hist0 = self.AXIS + 8
-        hist_w = min(max((self.width() - hist0) * 0.3, 36.0), 80.0)
+        hist_w = min(max((self.width() - hist0) * 0.26, 36.0), 80.0)
         band1 = hist0 + hist_w + 6
         bracket = band1 + 14
         return {"hist0": hist0, "hist_w": hist_w, "band1": band1, "bracket": bracket,
@@ -571,7 +571,7 @@ def hu_spin() -> QSpinBox:
     s.setKeyboardTracking(False)
     s.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     s.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    s.setFont(theme.num_font(14, QFont.Medium))
+    s.setFont(theme.num_font(13, QFont.Medium))
     s.setMinimumWidth(48)  # altfel latimea pentru „10000 HU” ar largi panoul ingust
     guard_wheel(s)
     return s
@@ -582,8 +582,8 @@ def field(prefix: str, widget: QWidget) -> QFrame:
     box = QFrame()
     box.setObjectName("field")
     lay = QHBoxLayout(box)
-    lay.setContentsMargins(10, 0, 8, 0)
-    lay.setSpacing(6)
+    lay.setContentsMargins(10, 0, 6, 0)
+    lay.setSpacing(4)
     lay.addWidget(label(prefix, "hint"))
     lay.addWidget(widget, 1)
     return box

@@ -20,9 +20,11 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 
 ## Interfata
 
-Gandita ca un instrument de masura: grafit aproape monocrom, colturi drepte, linii fine,
-fara carduri. Singura culoare din ecran este tesutul ales; actiunile si selectia sunt albe.
-Fonturile sunt Barlow si Barlow Semi Condensed cu cifre tabulare (incluse in aplicatie, licenta OFL).
+Gandita ca un instrument de masura: grafit aproape monocrom, colturi drepte, linii fine.
+Panoul lateral, felia si modelul 3D sunt blocuri separate de un culoar ingust. Singura
+culoare din ecran este tesutul ales; actiunile si selectia sunt albe. Fontul este
+Instrument Sans, cu varianta semi-condensata si cifre tabulare pentru valori (inclus in
+aplicatie, licenta OFL).
 
 - folderul DICOM se poate trage direct in fereastra (sau Ctrl+O)
 - rigla Hounsfield: o singura scara gradata de la -1024 la 3071 HU care aduna pragul,
@@ -33,7 +35,8 @@ Fonturile sunt Barlow si Barlow Semi Condensed cu cifre tabulare (incluse in apl
   (felia, grosimea, fereastra W/L, HU sub cursor, orientarea A/P/R/L); rotita mouse-ului,
   sagetile, PgUp/PgDn, Home/End schimba felia
 - vederi 3D standard (anterior, lateral, superior) cu rotire lina, captura PNG;
-  opacitatea modelului se randeaza corect (depth peeling)
+  opacitatea modelului se randeaza corect (depth peeling); cubul de orientare
+  (L/R, A/P, S/I) arata din ce parte privesti
 - avertisment cand modelul afisat nu mai corespunde setarilor
 - fereastra se potriveste ecranului (porneste maximizata pe ecrane mici); in fereastra
   ingusta viewport-urile trec unul sub altul
