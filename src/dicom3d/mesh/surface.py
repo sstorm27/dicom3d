@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import SimpleITK as sitk
 from vtkmodules.util import numpy_support
 
 from dicom3d import vtk_lite as vtk
@@ -60,6 +61,58 @@ def inside_field(
     g = np.minimum(f - np.float32(lower), np.float32(upper) - f)
     inside = mask.astype(bool)
     return np.where(inside, np.maximum(g, eps), np.minimum(g, -eps)).astype(np.float32)
+
+
+def smooth_mask_field(
+    mask: np.ndarray,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float],
+    direction: tuple[float, ...],
+    iso_mm: float | None = None,
+    sigma_mm: float | None = None,
+    margin_mm: float = 6.0,
+):
+    """Camp continuu dintr-o masca binara, pe voxeli cubici, pentru Marching Cubes.
+
+    O masca (ex. de la o retea neurala) pe felii de 3 mm da o suprafata in trepte de
+    3 mm. Aici masca se reesantioneaza liniar la voxeli cubici (fractiunea de voxel
+    acoperita devine valoare intre 0 si 1), apoi se netezeste gaussian; izosuprafata
+    0.5 a rezultatului trece lin printre felii. Sigma pe z e cel putin o treime din
+    grosimea feliei, cat sa stearga treptele fara sa subtieze structurile fine din plan.
+
+    Intoarce (camp, spacing, origine, directie) pentru `marching_cubes_field`; campul e
+    decupat la cutia structurii, ca sa nu tinem in memorie tot volumul la rezolutie fina.
+    """
+    if not mask.any():
+        raise ValueError("Masca este goala: nu exista nimic de reconstruit.")
+    sx, sy, sz = (float(s) for s in spacing)
+    iso = float(iso_mm or max(min(sx, sy, sz), 0.5))
+    sigma = float(sigma_mm if sigma_mm is not None else iso)
+    sig = (max(sigma, 0.3 * sx), max(sigma, 0.3 * sy), max(sigma, sz / 3))
+
+    # decupam la cutia structurii plus o margine (sa incapa netezirea)
+    idx = np.argwhere(mask)
+    pad = [int(np.ceil(margin_mm / s)) + 1 for s in (sz, sy, sx)]
+    lo = np.maximum(idx.min(0) - pad, 0)
+    hi = np.minimum(idx.max(0) + pad + 1, mask.shape)
+    sub = np.ascontiguousarray(mask[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]], np.float32)
+    d = np.array(direction, float).reshape(3, 3)
+    sub_origin = np.array(origin, float) + d @ (np.array([lo[2], lo[1], lo[0]]) * (sx, sy, sz))
+
+    img = sitk.GetImageFromArray(sub)
+    img.SetSpacing((sx, sy, sz))
+    img.SetOrigin(tuple(sub_origin))
+    img.SetDirection(tuple(d.ravel()))
+    size = [max(int(round(n * s / iso)), 1) for n, s in zip(img.GetSize(), (sx, sy, sz))]
+    # centrul cutiei ramane pe loc: prima pozitie se muta cu jumatate din diferenta
+    shift = np.array([(n * s - m * iso) / 2 + (iso - s) / 2
+                      for n, m, s in zip(img.GetSize(), size, (sx, sy, sz))])
+    new_origin = tuple(sub_origin + d @ shift)
+    img = sitk.Resample(img, size, sitk.Transform(), sitk.sitkLinear, new_origin,
+                        (iso, iso, iso), tuple(d.ravel()), 0.0, sitk.sitkFloat32)
+    img = sitk.SmoothingRecursiveGaussian(img, sig)
+    fld = sitk.GetArrayFromImage(img) - np.float32(0.5)
+    return fld.astype(np.float32), (iso, iso, iso), new_origin, tuple(d.ravel())
 
 
 def marching_cubes(

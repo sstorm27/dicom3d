@@ -102,3 +102,27 @@ def _read_tags(path: str) -> tuple[str, str]:
         return r.GetMetaData(key).strip() if r.HasMetaDataKey(key) else ""
 
     return tag("0008|103e"), tag("0008|0060")
+
+
+NIFTI_SUFFIXES = (".nii", ".nii.gz")
+
+
+def load_nifti(path: str | Path) -> Volume:
+    """Incarca un volum NIfTI (.nii / .nii.gz), formatul seturilor publice de date.
+
+    Seturile de antrenare/evaluare (Medical Segmentation Decathlon, TotalSegmentator,
+    LIDC-IDRI convertit) sunt de obicei NIfTI, nu DICOM. SimpleITK converteste
+    orientarea RAS din NIfTI in LPS, ca la DICOM.
+    """
+    img = sitk.ReadImage(str(path))
+    if img.GetPixelID() not in (sitk.sitkInt16, sitk.sitkFloat32):
+        img = sitk.Cast(img, sitk.sitkInt16 if "int" in img.GetPixelIDTypeAsString()
+                        else sitk.sitkFloat32)
+    return Volume.from_sitk(img)
+
+
+def load_volume(path: str | Path) -> Volume:
+    """Folder DICOM sau fisier NIfTI."""
+    if str(path).lower().endswith(NIFTI_SUFFIXES):
+        return load_nifti(path)
+    return load_folder(path)

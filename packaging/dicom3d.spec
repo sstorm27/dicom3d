@@ -9,7 +9,9 @@ a = Analysis(
     pathex=["../src"],
     hiddenimports=hidden,
     datas=[("../src/dicom3d/ui/assets", "dicom3d/ui/assets")],  # fonturile interfetei
-    excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets"],
+    excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
+              # segmentarea AI ruleaza din sursa (pip install dicom3d[ai]): PyTorch are ~1 GB
+              "torch", "totalsegmentator", "nnunetv2"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

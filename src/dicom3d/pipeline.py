@@ -15,6 +15,7 @@ from dicom3d.mesh.surface import (
     marching_cubes,
     marching_cubes_field,
     mesh_stats,
+    smooth_mask_field,
 )
 from dicom3d.preprocessing import (
     PreprocessOptions,
@@ -109,3 +110,79 @@ def reconstruct(
                   {**asdict(params), "preprocesare": asdict(pre), "suprafata": mesh_options.surface})
     segmentation = LabelMap.from_mask(mask_to_grid(mask, work, volume), volume.geometry, label)
     return ReconstructionResult(segmentation, label, mesh, mesh_stats(mesh))
+
+
+def reconstruct_ai(
+    volume: Volume,
+    group: str,
+    mesh_options: MeshOptions | None = None,
+    labelmap: LabelMap | None = None,
+    fast: bool = True,
+    refine_hu: tuple[float, float] | None = None,
+    sigma_mm: float | None = None,
+) -> tuple[ReconstructionResult, LabelMap]:
+    """Reconstructie din segmentarea AI (TotalSegmentator) a unui grup de structuri.
+
+    `labelmap` e segmentarea completa deja calculata (o rulare dureaza ~1 min pe CPU,
+    deci interfata o pastreaza si schimba doar grupul); daca lipseste, se calculeaza.
+
+    Cu `refine_hu` (interval HU), marginea se pune dupa valorile reale ale imaginii
+    oriunde reteaua si pragul sunt de acord, iar masca retelei completeaza doar ce
+    pragul pierde (sternul si cartilajele costale sub 250 HU, spongioasa). Asa
+    suprafata are detaliul imaginii, nu blocurile de 1,5-3 mm ale retelei.
+    Intoarce rezultatul si segmentarea completa, pentru refolosire.
+    """
+    from dicom3d.segmentation import ai
+
+    mesh_options = mesh_options or MeshOptions()
+    if labelmap is None:
+        labelmap = ai.segment(volume, fast=fast)
+    g = ai.AI_GROUPS[group]
+    mask = ai.group_mask(labelmap, g)
+    if not mask.any():
+        raise ValueError(f"Reteaua nu a gasit nicio structura din grupul {group} in aceasta serie.")
+    first = next(iter(labelmap.labels.values()))
+    model_mm = 3.0 if first.params.get("rapid", fast) else 1.5
+    sigma = sigma_mm if sigma_mm is not None else model_mm / 2
+    fld, spacing, origin, direction = smooth_mask_field(
+        mask, volume.spacing, volume.origin, volume.direction, sigma_mm=sigma)
+    if refine_hu is not None:
+        fld = _refine_with_hu(fld, spacing, origin, direction, volume, mask, refine_hu, model_mm)
+    mesh = marching_cubes_field(fld, spacing, origin, direction, mesh_options)
+    structures = sorted(lab.name for lab in labelmap.labels.values() if g.matches(lab.name))
+    label = Label(1, group, g.color, first.source,
+                  {"structuri": structures, "rafinare_hu": refine_hu})
+    segmentation = LabelMap.from_mask(mask, volume.geometry, label)
+    return ReconstructionResult(segmentation, label, mesh, mesh_stats(mesh)), labelmap
+
+
+def _refine_with_hu(fld, spacing, origin, direction, volume: Volume, mask, hu_range, model_mm):
+    """Combina campul netezit al retelei cu campul HU, pe aceeasi grila izotropa.
+
+    - langa structura gasita de retea (pana la ~o celula a retelei distanta), marginea
+      vine din HU: g = min(f - lower, upper - f), scalat la +-0.5;
+    - in interiorul sigur al retelei (masca ei micsorata), campul e pozitiv oricum,
+      deci golurile de sub prag (spongioasa, sternul subtire) se umplu;
+    - departe de retea, totul e exterior: pragul nu mai prinde mobilier, catetere etc.
+    """
+    lower, upper = hu_range
+    ref = sitk.Image([int(n) for n in fld.shape[::-1]], sitk.sitkFloat32)
+    ref.SetSpacing(spacing)
+    ref.SetOrigin(origin)
+    ref.SetDirection(direction)
+    hu = sitk.Resample(sitk.Cast(clean_hu(volume).to_sitk(), sitk.sitkFloat32), ref,
+                       sitk.Transform(), sitk.sitkBSpline, -1024.0, sitk.sitkFloat32)
+    hu = sitk.GetArrayFromImage(hu)
+    g_hu = np.clip(np.minimum(hu - lower, upper - hu) / 200.0, -0.5, 0.5)
+
+    # vecinatatea retelei: masca dilatata cu ~o celula a retelei
+    near, *_ = smooth_mask_field(mask, volume.spacing, volume.origin, volume.direction,
+                                 sigma_mm=model_mm)
+    near = near[:fld.shape[0], :fld.shape[1], :fld.shape[2]]
+    if near.shape != fld.shape:
+        near = np.pad(near, [(0, a - b) for a, b in zip(fld.shape, near.shape)],
+                      constant_values=-0.5)
+    hu_part = np.where(near > -0.45, g_hu, -0.5)
+    # interiorul sigur al retelei: izonivelul 0.75 in loc de 0.5 (masca micsorata)
+    inner = fld - np.float32(0.25)
+    return np.maximum(hu_part, inner).astype(np.float32)

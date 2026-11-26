@@ -30,7 +30,8 @@ from dicom3d import __version__
 from dicom3d.data import Label, SeriesInfo, Volume
 from dicom3d.io.dicom_loader import find_series, load_series
 from dicom3d.mesh.surface import MeshOptions, export_mesh
-from dicom3d.pipeline import ReconstructionResult, ThresholdParams, reconstruct
+from dicom3d.pipeline import ReconstructionResult, ThresholdParams, reconstruct, reconstruct_ai
+from dicom3d.segmentation import ai
 from dicom3d.preprocessing import PreprocessOptions
 from dicom3d.segmentation.threshold import PRESETS
 from dicom3d.ui import icons, theme
@@ -123,6 +124,7 @@ class MainWindow(QMainWindow):
         self._built_tissue = ""
         self._summary = ""
         self._min_component_ml = 0.0  # setat de presetare
+        self._ai_labels = None  # segmentarea AI a seriei curente (refolosita intre tesuturi)
 
         self.slice_view = SliceView()
         self.view3d = View3D()
@@ -292,8 +294,19 @@ class MainWindow(QMainWindow):
             "Marching Cubes pe valorile HU: marginea se pune între voxeli după valorile\n"
             "reale. Debifat: pe masca 0/1, cu marginea mereu la jumătatea distanței.")
         self.gray_check.setChecked(True)
+        self.ai_check = CheckRow("Segmentare AI (TotalSegmentator)")
+        if ai.available():
+            self.ai_check.setToolTip(
+                "Rețea neurală preantrenată care recunoaște fiecare os și organ (sternul,\n"
+                "cartilajele costale, lobii pulmonari, inima). Marginea se pune tot după\n"
+                "valorile HU; rețeaua completează doar ce pragul pierde.\n"
+                "Prima rulare descarcă modelul (~135 MB) și durează ~1 min pe procesor.")
+        else:
+            self.ai_check.setEnabled(False)
+            self.ai_check.setToolTip("Necesită TotalSegmentator: pip install dicom3d[ai]")
         g.addWidget(self.iso_check)
         g.addWidget(self.gray_check)
+        g.addWidget(self.ai_check)
         col.addWidget(sec)
         col.addWidget(separator())
 
@@ -338,7 +351,7 @@ class MainWindow(QMainWindow):
                   self.decim_spin):
             w.valueChanged.connect(self._mark_stale)
         for check in (self.largest_check, self.fill_check, self.outside_check,
-                      self.solid_check, self.iso_check, self.gray_check):
+                      self.solid_check, self.iso_check, self.gray_check, self.ai_check):
             check.toggled.connect(self._mark_stale)
         self.denoise_seg.currentTextChanged.connect(self._mark_stale)
         return side
@@ -536,6 +549,7 @@ class MainWindow(QMainWindow):
     def _on_volume_loaded(self, volume: Volume):
         self.volume = volume
         self.result = None
+        self._ai_labels = None
         self._stale = False
         self._set_busy(False)
         self.view3d.clear()
@@ -615,8 +629,23 @@ class MainWindow(QMainWindow):
         hex_color = theme.TISSUE_COLORS.get(tissue, theme.TEXT).lstrip("#")
         label = Label(1, tissue or "Segment",
                       tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+        group = ai.PRESET_TO_GROUP.get(tissue)
+        if self.ai_check.isChecked() and group:
+            first = self._ai_labels is None
+            self._set_busy(True, "Segmentez cu rețeaua AI (prima dată durează ~1 min)…" if first
+                           else "Generez suprafața din segmentarea AI…")
+            self._run(reconstruct_ai, self.volume, group, opts, self._ai_labels, True, (lo, hi),
+                      on_done=self._on_ai_built)
+            return
         self._run(reconstruct, self.volume, params, opts, label, pre,
                   on_done=self._on_model_built)
+
+    def _on_ai_built(self, out):
+        result, self._ai_labels = out
+        self._on_model_built(result)
+        found = ", ".join(result.label.params.get("structuri", [])[:6])
+        self._set_status(f"Model 3D din segmentarea AI ({len(result.label.params['structuri'])} "
+                         f"structuri: {found}…).", "ok")
 
     def _on_model_built(self, result: ReconstructionResult):
         self.result = result
