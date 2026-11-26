@@ -3,7 +3,8 @@ import pytest
 from vtkmodules.vtkFiltersCore import vtkFeatureEdges
 from vtkmodules.vtkIOGeometry import vtkOBJReader, vtkSTLReader
 
-from dicom3d.io.dicom_loader import Volume, find_series, load_folder
+from dicom3d.data import Volume
+from dicom3d.io.dicom_loader import find_series, load_folder
 from dicom3d.mesh.surface import MeshOptions, export_mesh, marching_cubes, mesh_stats
 from dicom3d.pipeline import ThresholdParams, reconstruct
 from dicom3d.segmentation.threshold import mask_volume_ml, threshold_mask
@@ -92,7 +93,7 @@ def test_exclude_outside_keeps_only_internal_air():
     vol[(x - 32) ** 2 + (y - 32) ** 2 < 25**2] = 40
     vol[(x - 32) ** 2 + (y - 32) ** 2 < 8**2] = -900
     vol[:, 0, :] = vol[:, -1, :] = vol[:, :, 0] = vol[:, :, -1] = -1024
-    volume = Volume(vol, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1))
+    volume = Volume.from_array(vol, spacing=(1.0, 1.0, 1.0))
     lungs = threshold_mask(volume, -1000, -400, exclude_outside=True)
     cavity = (x - 32) ** 2 + (y - 32) ** 2 < 8**2
     assert np.array_equal(lungs.astype(bool), cavity)

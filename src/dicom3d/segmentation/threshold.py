@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 import SimpleITK as sitk
 
-from dicom3d.io.dicom_loader import Volume
+from dicom3d.data import Volume
 
 
 @dataclass(frozen=True)

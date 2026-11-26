@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 from dicom3d import vtk_lite as vtk
 
-from dicom3d.io.dicom_loader import Volume
+from dicom3d.data import Label, LabelMap, Volume
 from dicom3d.mesh.surface import MeshOptions, marching_cubes, mesh_stats
 from dicom3d.segmentation.threshold import threshold_mask
 
@@ -24,16 +24,29 @@ class ThresholdParams:
 
 @dataclass
 class ReconstructionResult:
-    mask: np.ndarray
-    mesh: vtk.vtkPolyData
+    """Ce produce o reconstructie: structura segmentata si suprafata ei 3D."""
+
+    segmentation: LabelMap  # pe aceeasi grila ca volumul de intrare
+    label: Label  # structura reconstruita din `segmentation`
+    mesh: vtk.vtkPolyData  # in coordonatele pacientului (LPS, mm)
     stats: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def mask(self) -> np.ndarray:
+        """Masca binara uint8 (z, y, x) a structurii reconstruite."""
+        return self.segmentation.mask(self.label.value)
 
 
 def reconstruct(
     volume: Volume,
     params: ThresholdParams,
     mesh_options: MeshOptions | None = None,
+    label: Label | None = None,
 ) -> ReconstructionResult:
+    """Segmenteaza prin prag, apoi extrage suprafata cu Marching Cubes.
+
+    `label` da numele si culoarea structurii; implicit "Segment" cu valoarea 1.
+    """
     mask = threshold_mask(
         volume,
         params.lower,
@@ -44,4 +57,8 @@ def reconstruct(
         exclude_outside=params.exclude_outside,
     )
     mesh = marching_cubes(mask, volume.spacing, volume.origin, volume.direction, mesh_options)
-    return ReconstructionResult(mask, mesh, mesh_stats(mesh))
+    if label is None:
+        label = Label(1, "Segment")
+    label = Label(label.value, label.name, label.color, "prag", asdict(params))
+    segmentation = LabelMap.from_mask(mask, volume.geometry, label)
+    return ReconstructionResult(segmentation, label, mesh, mesh_stats(mesh))
