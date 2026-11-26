@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
         self.pool = QThreadPool.globalInstance()
         self.volume: Volume | None = None
         self.result: ReconstructionResult | None = None
+        self._min_component_ml = 0.0  # setat de presetare
 
         self.slice_view = SliceView()
         self.view3d = View3D()
@@ -125,12 +126,17 @@ class MainWindow(QMainWindow):
         self.upper_spin = self._hu_spin()
         f.addRow("Prag inferior (HU):", self.lower_spin)
         f.addRow("Prag superior (HU):", self.upper_spin)
-        self.largest_check = QCheckBox("Pastreaza cea mai mare componenta")
+        self.largest_check = QCheckBox("Elimina bucatile mici izolate")
+        self.largest_check.setToolTip(
+            "Pastreaza cea mai mare componenta conexa si, pentru os, si celelalte\n"
+            "componente mari (clavicule, omoplati, stern), nu doar coloana.")
         self.largest_check.setChecked(True)
         self.fill_check = QCheckBox("Umple golurile")
+        self.solid_check = QCheckBox("Os compact (umple spongioasa si canalul medular)")
         self.outside_check = QCheckBox("Exclude aerul din jurul corpului")
         f.addRow(self.largest_check)
         f.addRow(self.fill_check)
+        f.addRow(self.solid_check)
         f.addRow(self.outside_check)
         self.sigma_spin = QDoubleSpinBox(minimum=0, maximum=5, singleStep=0.5, decimals=1)
         self.sigma_spin.setSuffix(" mm")
@@ -189,7 +195,8 @@ class MainWindow(QMainWindow):
         for spin in (self.lower_spin, self.upper_spin, self.sigma_spin, self.smooth_spin,
                      self.decim_spin):
             spin.valueChanged.connect(self._mark_stale)
-        for check in (self.largest_check, self.fill_check, self.outside_check, self.iso_check):
+        for check in (self.largest_check, self.fill_check, self.outside_check, self.iso_check,
+                      self.solid_check):
             check.toggled.connect(self._mark_stale)
         for combo in (self.denoise_combo, self.surface_combo):
             combo.currentTextChanged.connect(self._mark_stale)
@@ -284,6 +291,8 @@ class MainWindow(QMainWindow):
             fill_holes=self.fill_check.isChecked(),
             smoothing_sigma_mm=self.sigma_spin.value(),
             exclude_outside=self.outside_check.isChecked(),
+            min_component_ml=self._min_component_ml,
+            solid=self.solid_check.isChecked(),
         )
         opts = MeshOptions(
             smoothing_iterations=self.smooth_spin.value(),
@@ -339,6 +348,8 @@ class MainWindow(QMainWindow):
         p = PRESETS[name]
         self.outside_check.setChecked(p.exclude_outside)
         self.denoise_combo.setCurrentText(p.denoise)
+        self.solid_check.setChecked(p.solid)
+        self._min_component_ml = p.min_component_ml
         for spin, value in ((self.lower_spin, p.lower), (self.upper_spin, p.upper)):
             spin.blockSignals(True)
             spin.setValue(int(value))

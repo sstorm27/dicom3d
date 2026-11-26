@@ -114,3 +114,30 @@ def test_denoising_helps_low_contrast_structures():
     filtered = evaluate(shape, vol, PreprocessOptions(denoise="anizotropic"), MeshOptions(20), 80)
     # fara filtrare pragul prinde zgomotul de langa sfera; cu difuzie anizotropa nu
     assert filtered[1] < 0.3 * plain[1]
+
+
+def test_large_components_keeps_separate_big_bones():
+    from dicom3d.segmentation.threshold import threshold_mask
+
+    arr = np.full((30, 60, 60), 40.0, np.float32)
+    arr[5:25, 5:25, 5:25] = 700  # 8 ml, cea mai mare ("coloana")
+    arr[5:20, 35:50, 35:50] = 700  # 3.4 ml ("omoplat")
+    arr[27:29, 50:52, 50:52] = 700  # 8 voxeli, zgomot
+    vol = Volume(arr, (1.0, 1.0, 1.0), (0, 0, 0), IDENTITY)
+    only_largest = threshold_mask(vol, 250, 3000, keep_largest=True)
+    big = threshold_mask(vol, 250, 3000, keep_largest=True, min_component_ml=2.0)
+    assert only_largest.sum() == 20**3
+    assert big.sum() == 20**3 + 15**3  # zgomotul ramane eliminat
+
+
+def test_solidify_fills_hollow_bone():
+    from dicom3d.segmentation.threshold import threshold_mask
+
+    z, y, x = np.mgrid[0:40, 0:40, 0:40]
+    r = np.sqrt((y - 20.0) ** 2 + (x - 20.0) ** 2)
+    arr = np.where((r < 8) & (r >= 6), 700.0, 40.0).astype(np.float32)  # tub: corticala
+    arr[:, :, :] = np.where((r < 6), 150.0, arr)  # canal medular sub prag
+    vol = Volume(arr, (1.0, 1.0, 1.0), (0, 0, 0), IDENTITY)
+    hollow = threshold_mask(vol, 250, 3000)
+    solid = threshold_mask(vol, 250, 3000, solid=True)
+    assert not hollow[20, 20, 20] and solid[20, 20, 20]

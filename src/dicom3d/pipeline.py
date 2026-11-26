@@ -34,6 +34,8 @@ class ThresholdParams:
     fill_holes: bool = False
     smoothing_sigma_mm: float = 0.0
     exclude_outside: bool = False
+    min_component_ml: float = 0.0
+    solid: bool = False
 
 
 @dataclass
@@ -71,6 +73,8 @@ def reconstruct(
         fill_holes=params.fill_holes,
         smoothing_sigma_mm=params.smoothing_sigma_mm,
         exclude_outside=params.exclude_outside,
+        min_component_ml=params.min_component_ml,
+        solid=params.solid,
     )
     if mesh_options.surface == "binar":
         mesh = marching_cubes(mask, work.spacing, work.origin, work.direction, mesh_options)

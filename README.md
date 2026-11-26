@@ -11,7 +11,9 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - incarca o serie DICOM dintr-un folder (cauta recursiv, permite alegerea seriei)
 - afiseaza feliile axiale cu ferestre CT (tesut moale, os, plamani, creier)
 - segmentare prin prag in HU, cu presetari (os, tesut moale, vase, plamani, piele),
-  pastrarea celei mai mari componente conexe, umplerea golurilor, netezire gaussiana
+  pastrarea componentelor mari (nu doar a celei mai mari: claviculele, omoplatii si coastele
+  superioare sunt bucati separate), os compact (umplerea spongioasei si a canalului medular),
+  umplerea golurilor, netezire gaussiana
 - previzualizare live a pragului pe felia curenta
 - verificarea geometriei seriei (felii lipsa, spatiere neuniforma, gantry inclinat)
 - preprocesare: valorile de umplutura aduse la aer, reducerea zgomotului (gaussian, median,
