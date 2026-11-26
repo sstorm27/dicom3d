@@ -27,8 +27,10 @@ from PySide6.QtWidgets import (
 
 from dicom3d import __version__
 from dicom3d.io.dicom_loader import SeriesInfo, Volume, find_series, load_series
-from dicom3d.mesh.surface import MeshOptions, export_mesh
+from dicom3d.io.series_check import check_geometry
+from dicom3d.mesh.surface import SURFACE_MODES, MeshOptions, export_mesh
 from dicom3d.pipeline import ReconstructionResult, ThresholdParams, reconstruct
+from dicom3d.preprocessing import DENOISE_METHODS, PreprocessOptions
 from dicom3d.segmentation.threshold import PRESETS
 from dicom3d.ui.slice_view import SliceView
 from dicom3d.ui.view3d import View3D
@@ -136,6 +138,28 @@ class MainWindow(QMainWindow):
         f.addRow("Netezire imagine:", self.sigma_spin)
         lay.addWidget(g_seg)
 
+        g_q = QGroupBox("Calitatea reconstructiei")
+        f = QFormLayout(g_q)
+        self.denoise_combo = QComboBox()
+        self.denoise_combo.addItems(DENOISE_METHODS)
+        self.denoise_combo.setToolTip(
+            "Reducerea zgomotului inainte de prag. Anizotropic (Perona-Malik) netezeste\n"
+            "zonele omogene dar pastreaza marginile; se alege automat dupa tesut.")
+        f.addRow("Reducere zgomot:", self.denoise_combo)
+        self.iso_check = QCheckBox("Voxeli izotropi (interpolare B-spline)")
+        self.iso_check.setChecked(True)
+        self.iso_check.setToolTip(
+            "Reesantioneaza volumul la voxeli cubici inainte de prag, ca suprafata\n"
+            "sa nu mai aiba trepte cat grosimea feliei.")
+        f.addRow(self.iso_check)
+        self.surface_combo = QComboBox()
+        self.surface_combo.addItems(SURFACE_MODES)
+        self.surface_combo.setToolTip(
+            "nivele de gri: marginea e pusa intre voxeli dupa valorile HU (mai precis)\n"
+            "binar: marginea e mereu la jumatatea distantei dintre voxeli (in trepte)")
+        f.addRow("Suprafata:", self.surface_combo)
+        lay.addWidget(g_q)
+
         g_mesh = QGroupBox("Model 3D")
         f = QFormLayout(g_mesh)
         self.smooth_spin = QSpinBox(minimum=0, maximum=100, value=20)
@@ -165,8 +189,10 @@ class MainWindow(QMainWindow):
         for spin in (self.lower_spin, self.upper_spin, self.sigma_spin, self.smooth_spin,
                      self.decim_spin):
             spin.valueChanged.connect(self._mark_stale)
-        for check in (self.largest_check, self.fill_check, self.outside_check):
+        for check in (self.largest_check, self.fill_check, self.outside_check, self.iso_check):
             check.toggled.connect(self._mark_stale)
+        for combo in (self.denoise_combo, self.surface_combo):
+            combo.currentTextChanged.connect(self._mark_stale)
         self._apply_preset(self.preset_combo.currentText())
         return panel
 
@@ -212,9 +238,10 @@ class MainWindow(QMainWindow):
                 return
             chosen = series[labels.index(label)]
         self._set_busy(True, f"Incarc {chosen.num_files} felii...")
-        self._run(load_series, chosen, on_done=self._on_volume_loaded)
+        self._run(_load_and_check, chosen, on_done=self._on_volume_loaded)
 
-    def _on_volume_loaded(self, volume: Volume):
+    def _on_volume_loaded(self, loaded: tuple[Volume, list[str]]):
+        volume, geometry_warnings = loaded
         self.volume = volume
         self.result = None
         self._set_busy(False)
@@ -231,6 +258,7 @@ class MainWindow(QMainWindow):
             f"Dimensiune: {x} x {y} x {z} voxeli\n"
             f"Spatiere: {sx:.2f} x {sy:.2f} x {sz:.2f} mm\n"
             f"Interval valori: {volume.array.min():.0f} .. {volume.array.max():.0f}"
+            + "".join(f"\n\nAtentie: {w}" for w in geometry_warnings)
         )
         self._update_preview()
         self.statusBar().showMessage("Volum incarcat. Ajustati pragul si generati modelul 3D.")
@@ -260,9 +288,14 @@ class MainWindow(QMainWindow):
         opts = MeshOptions(
             smoothing_iterations=self.smooth_spin.value(),
             decimation=self.decim_spin.value() / 100,
+            surface=self.surface_combo.currentText(),
         )
-        self._set_busy(True, "Segmentez si generez suprafata (Marching Cubes)...")
-        self._run(reconstruct, self.volume, params, opts, on_done=self._on_model_built)
+        pre = PreprocessOptions(
+            denoise=self.denoise_combo.currentText(),
+            isotropic=self.iso_check.isChecked(),
+        )
+        self._set_busy(True, "Preprocesez, segmentez si generez suprafata (Marching Cubes)...")
+        self._run(reconstruct, self.volume, params, opts, pre, on_done=self._on_model_built)
 
     def _on_model_built(self, result: ReconstructionResult):
         self.result = result
@@ -305,6 +338,7 @@ class MainWindow(QMainWindow):
     def _apply_preset(self, name: str):
         p = PRESETS[name]
         self.outside_check.setChecked(p.exclude_outside)
+        self.denoise_combo.setCurrentText(p.denoise)
         for spin, value in ((self.lower_spin, p.lower), (self.upper_spin, p.upper)):
             spin.blockSignals(True)
             spin.setValue(int(value))
@@ -354,3 +388,8 @@ class MainWindow(QMainWindow):
             self.unsetCursor()
         if message:
             self.statusBar().showMessage(message)
+
+
+def _load_and_check(series: SeriesInfo) -> tuple[Volume, list[str]]:
+    """Ruleaza pe firul de lucru: incarca seria si verifica geometria feliilor."""
+    return load_series(series), check_geometry(series)

@@ -11,8 +11,10 @@ import sys
 import time
 
 from dicom3d.io.dicom_loader import load_folder
-from dicom3d.mesh.surface import MeshOptions, export_mesh
+from dicom3d.io.series_check import check_geometry
+from dicom3d.mesh.surface import SURFACE_MODES, MeshOptions, export_mesh
 from dicom3d.pipeline import ThresholdParams, reconstruct
+from dicom3d.preprocessing import DENOISE_METHODS, INTERPOLATIONS, PreprocessOptions
 from dicom3d.segmentation.threshold import PRESETS
 
 
@@ -31,6 +33,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sigma", type=float, default=0.0, help="netezire gaussiana (mm)")
     ap.add_argument("--smooth", type=int, default=20, help="iteratii netezire mesh")
     ap.add_argument("--decimate", type=float, default=0.0, help="fractiune 0..0.95")
+    ap.add_argument("--denoise", choices=DENOISE_METHODS,
+                    help="reducerea zgomotului (implicit: dupa preset)")
+    ap.add_argument("--isotropic", action=argparse.BooleanOptionalAction, default=True,
+                    help="reesantioneaza la voxeli cubici inainte de prag (implicit: da)")
+    ap.add_argument("--interp", choices=list(INTERPOLATIONS), default="bspline",
+                    help="interpolarea folosita la reesantionare")
+    ap.add_argument("--spacing", type=float, help="pasul izotrop in mm (implicit: cel mai mic)")
+    ap.add_argument("--surface", choices=SURFACE_MODES, default=SURFACE_MODES[0],
+                    help="Marching Cubes pe valorile HU sau pe masca binara")
     args = ap.parse_args(argv)
 
     preset = PRESETS[args.preset or "Os"]
@@ -44,10 +55,21 @@ def main(argv: list[str] | None = None) -> int:
                          else args.exclude_outside),
     )
 
+    pre = PreprocessOptions(
+        denoise=args.denoise or preset.denoise,
+        isotropic=args.isotropic,
+        interpolation=args.interp,
+        target_spacing_mm=args.spacing,
+    )
+
     t0 = time.perf_counter()
     volume = load_folder(args.folder)
     print(f"Volum: {volume.shape_xyz} voxeli, spatiere {volume.spacing} mm")
-    result = reconstruct(volume, params, MeshOptions(args.smooth, args.decimate))
+    if volume.info is not None:
+        for w in check_geometry(volume.info):
+            print(f"Atentie: {w}")
+    mesh_opts = MeshOptions(args.smooth, args.decimate, surface=args.surface)
+    result = reconstruct(volume, params, mesh_opts, pre)
     export_mesh(result.mesh, args.output)
     s = result.stats
     print(f"Prag [{params.lower:g}, {params.upper:g}] HU -> {s['triangles']} triunghiuri, "

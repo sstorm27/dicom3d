@@ -13,7 +13,11 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - segmentare prin prag in HU, cu presetari (os, tesut moale, vase, plamani, piele),
   pastrarea celei mai mari componente conexe, umplerea golurilor, netezire gaussiana
 - previzualizare live a pragului pe felia curenta
-- model 3D cu Marching Cubes, netezire (windowed sinc) si decimare, in coordonatele pacientului (mm)
+- verificarea geometriei seriei (felii lipsa, spatiere neuniforma, gantry inclinat)
+- preprocesare: valorile de umplutura aduse la aer, reducerea zgomotului (gaussian, median,
+  difuzie anizotropa Perona-Malik), reesantionare la voxeli izotropi cu interpolare B-spline cubica
+- model 3D cu Marching Cubes pe valorile HU (pozitia sub-voxel a marginii, nu doar masca 0/1),
+  netezire (windowed sinc) si decimare cuadrica, in coordonatele pacientului (mm)
 - vizualizare 3D interactiva (VTK) cu marcaj de orientare
 - export STL (binar), OBJ, PLY; statistici (triunghiuri, volum in ml, suprafata)
 - interfata in linie de comanda pentru procesare in lot
@@ -43,6 +47,12 @@ dicom3d-cli C:\date\CT_serie --preset Os -o os.stl
   sau datele de exemplu din 3D Slicer. Folderul `data/` este ignorat de git:
   nu urcati date medicale in repo.
 
+## Evaluarea preciziei
+
+`python scripts/evaluate_accuracy.py` reconstruieste fantome cu geometrie cunoscuta (o sfera si
+o tija inclinata, esantionate ca un CT real cu felii de 3 mm) cu fiecare varianta a pipeline-ului
+si masoara distanta fata de suprafata exacta si eroarea de volum.
+
 ## Teste
 
 ```powershell
@@ -64,12 +74,15 @@ pe Linux si Windows si publica build-ul Windows ca artefact descarcabil.
 ```
 src/dicom3d/
   io/dicom_loader.py        incarcare serii DICOM (SimpleITK/GDCM)
+  io/series_check.py        verificarea geometriei feliilor
+  preprocessing.py          curatare HU, reducere zgomot, reesantionare izotropa
   segmentation/threshold.py segmentare prin prag + post-procesare
   mesh/surface.py           Marching Cubes, netezire, decimare, export
   pipeline.py               volum -> masca -> mesh
   ui/                       interfata PySide6 + VTK
   cli.py                    linie de comanda
 scripts/make_phantom.py     generator de serie CT sintetica
+scripts/evaluate_accuracy.py  precizia reconstructiei pe fantome analitice
 packaging/                  PyInstaller
 tests/                      teste automate
 ```

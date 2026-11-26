@@ -16,22 +16,50 @@ class MeshOptions:
     smoothing_iterations: int = 20  # 0 = fara netezire
     decimation: float = 0.0  # fractiunea de triunghiuri eliminate, 0..0.95
     patient_coords: bool = True  # aplica originea si orientarea din DICOM
+    # "nivele de gri": Marching Cubes pe valorile HU (pozitie sub-voxel a marginii);
+    # "binar": Marching Cubes pe masca 0/1 (suprafata in trepte, comportamentul vechi)
+    surface: str = "nivele de gri"
+
+
+SURFACE_MODES = ("nivele de gri", "binar")
 
 
 def mask_to_image_data(
     mask: np.ndarray, spacing: tuple[float, float, float]
 ) -> vtk.vtkImageData:
     """Converteste o masca (z, y, x) in vtkImageData, in coordonate de voxel * spacing."""
-    z, y, x = mask.shape
+    return _to_image_data(np.ascontiguousarray(mask, dtype=np.uint8), spacing,
+                          vtk.VTK_UNSIGNED_CHAR)
+
+
+def _to_image_data(array: np.ndarray, spacing, vtk_type) -> vtk.vtkImageData:
+    z, y, x = array.shape
     img = vtk.vtkImageData()
     img.SetDimensions(x, y, z)
     img.SetSpacing(spacing)
     img.SetOrigin(0.0, 0.0, 0.0)
     # VTK parcurge x cel mai rapid, la fel ca ordinea C a unui array (z, y, x)
-    flat = np.ascontiguousarray(mask, dtype=np.uint8).ravel()
-    arr = numpy_support.numpy_to_vtk(flat, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+    arr = numpy_support.numpy_to_vtk(array.ravel(), deep=True, array_type=vtk_type)
     img.GetPointData().SetScalars(arr)
     return img
+
+
+def inside_field(
+    image: np.ndarray, mask: np.ndarray, lower: float, upper: float, eps: float = 0.5
+) -> np.ndarray:
+    """Camp continuu care e pozitiv in interiorul structurii si zero pe marginea ei.
+
+    g = min(f - lower, upper - f) e pozitiv exact cand valoarea HU f e in [lower, upper]
+    si variaza continuu, deci izosuprafata g = 0 trece printre voxeli acolo unde
+    interpolarea liniara a valorilor reale pune marginea (efectul de volum partial
+    devine informatie sub-voxel). Semnul e fortat sa coincida cu masca, deci tot ce a
+    hotarat segmentarea (componenta cea mai mare, goluri umplute, aer exterior
+    eliminat) se pastreaza; doar pozitia exacta a marginii vine din imagine.
+    """
+    f = image.astype(np.float32, copy=False)
+    g = np.minimum(f - np.float32(lower), np.float32(upper) - f)
+    inside = mask.astype(bool)
+    return np.where(inside, np.maximum(g, eps), np.minimum(g, -eps)).astype(np.float32)
 
 
 def marching_cubes(
@@ -46,29 +74,46 @@ def marching_cubes(
     Folosim Flying Edges, implementarea paralela din VTK a algoritmului Marching
     Cubes: aceleasi triunghiuri, dar de ~15 ori mai rapid pe volume mari.
     """
-    options = options or MeshOptions()
     if not mask.any():
         raise ValueError("Masca este goala: nu exista nimic de reconstruit.")
-
     # bordura de un voxel inchide suprafata la marginile volumului
-    padded = np.pad(mask, 1)
-    image = mask_to_image_data(padded, spacing)
+    image = mask_to_image_data(np.pad(mask, 1), spacing)
+    return _surface(image, 0.5, spacing, origin, direction, options or MeshOptions())
 
+
+def marching_cubes_field(
+    field: np.ndarray,
+    spacing: tuple[float, float, float],
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    direction: tuple[float, ...] = (1, 0, 0, 0, 1, 0, 0, 0, 1),
+    options: MeshOptions | None = None,
+) -> vtk.vtkPolyData:
+    """Marching Cubes pe un camp continuu (vezi `inside_field`), la izovaloarea 0.
+
+    Varfurile se pun prin interpolare liniara pe muchii, p = p1 + (0 - f1)/(f2 - f1)(p2 - p1),
+    deci suprafata urmeaza valorile reale in loc sa stea mereu la jumatatea muchiei.
+    """
+    if not (field > 0).any():
+        raise ValueError("Masca este goala: nu exista nimic de reconstruit.")
+    padded = np.pad(field, 1, mode="edge")
+    # bordura are semnul opus vecinului: suprafata se inchide la jumatatea muchiei,
+    # exact ca in varianta binara
+    shell = np.ones(padded.shape, bool)
+    shell[1:-1, 1:-1, 1:-1] = False
+    padded[shell] = -np.abs(padded[shell])
+    image = _to_image_data(np.ascontiguousarray(padded, np.float32), spacing, vtk.VTK_FLOAT)
+    return _surface(image, 0.0, spacing, origin, direction, options or MeshOptions())
+
+
+def _surface(image, iso, spacing, origin, direction, options: MeshOptions) -> vtk.vtkPolyData:
     mc = vtk.vtkFlyingEdges3D()
     mc.SetInputData(image)
-    mc.SetValue(0, 0.5)
+    mc.SetValue(0, iso)
     mc.ComputeNormalsOff()
     mc.ComputeGradientsOff()
     mc.ComputeScalarsOff()
     mc.Update()
     poly: vtk.vtkPolyData = mc.GetOutput()
-
-    if options.decimation > 0:
-        dec = vtk.vtkQuadricDecimation()
-        dec.SetInputData(poly)
-        dec.SetTargetReduction(min(options.decimation, 0.95))
-        dec.Update()
-        poly = dec.GetOutput()
 
     if options.smoothing_iterations > 0:
         smooth = vtk.vtkWindowedSincPolyDataFilter()
@@ -80,6 +125,14 @@ def marching_cubes(
         smooth.BoundarySmoothingOff()
         smooth.Update()
         poly = smooth.GetOutput()
+
+    # decimarea dupa netezire: altfel metrica cuadrica ar pastra fidel tocmai treptele
+    if options.decimation > 0:
+        dec = vtk.vtkQuadricDecimation()
+        dec.SetInputData(poly)
+        dec.SetTargetReduction(min(options.decimation, 0.95))
+        dec.Update()
+        poly = dec.GetOutput()
 
     poly = _to_patient(poly, spacing, origin, direction, options.patient_coords)
 

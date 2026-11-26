@@ -17,6 +17,11 @@ class ThresholdPreset:
     upper: float
     # elimina regiunile care ating marginile laterale ale imaginii (aerul din jurul corpului)
     exclude_outside: bool = False
+    # reducerea zgomotului recomandata (vezi preprocessing.DENOISE_METHODS): structurile
+    # cu contrast mic fata de vecini (tesut moale, vase, plamani cu vasele lor) au nevoie
+    # de filtrare ca pragul sa nu prinda zgomotul; osul si pielea au contrast mare, iar
+    # filtrarea doar ar subtia structurile fine (corticala, coastele)
+    denoise: str = "niciuna"
 
 
 # Intervale tipice in unitati Hounsfield (CT)
@@ -24,9 +29,10 @@ PRESETS: dict[str, ThresholdPreset] = {
     p.name: p
     for p in (
         ThresholdPreset("Os", 250, 3000),
-        ThresholdPreset("Tesut moale", -100, 200),
-        ThresholdPreset("Vase cu contrast", 150, 500),
-        ThresholdPreset("Plamani (aer)", -1000, -400, exclude_outside=True),
+        ThresholdPreset("Tesut moale", -100, 200, denoise="anizotropic"),
+        ThresholdPreset("Vase cu contrast", 150, 500, denoise="anizotropic"),
+        ThresholdPreset("Plamani (aer)", -1000, -400, exclude_outside=True,
+                        denoise="anizotropic"),
         ThresholdPreset("Piele", -400, 3000),
     )
 }

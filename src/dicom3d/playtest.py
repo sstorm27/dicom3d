@@ -191,6 +191,16 @@ class Playtest:
         w.fill_check.setChecked(False)
         w.sigma_spin.setValue(0)
 
+        self.log("5b. Comparatie: reconstructia veche (masca binara, felii anizotrope)")
+        w.surface_combo.setCurrentText("binar")
+        w.iso_check.setChecked(False)
+        self.build("Os vechi")
+        self.screenshot("12_os_binar_anizotrop")
+        w.surface_combo.setCurrentText("nivele de gri")
+        w.iso_check.setChecked(True)
+        self.build("Os nou")
+        self.screenshot("13_os_nivele_gri_izotrop")
+
         self.log("6. Export")
         for ext in ("stl", "obj", "ply"):
             self.save_path = str(self.out / f"model.{ext}")
