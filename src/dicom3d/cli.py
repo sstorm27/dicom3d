@@ -10,16 +10,16 @@ import argparse
 import sys
 import time
 
-from dicom3d.io.dicom_loader import load_folder
+from dicom3d.io.dicom_loader import load_volume
 from dicom3d.mesh.surface import SURFACE_MODES, MeshOptions, export_mesh
-from dicom3d.pipeline import ThresholdParams, reconstruct
+from dicom3d.pipeline import ThresholdParams, reconstruct, reconstruct_ai
 from dicom3d.preprocessing import DENOISE_METHODS, INTERPOLATIONS, PreprocessOptions
 from dicom3d.segmentation.threshold import PRESETS
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dicom3d-cli", description=__doc__.splitlines()[0])
-    ap.add_argument("folder", help="folder cu seria DICOM")
+    ap.add_argument("folder", help="folder cu seria DICOM sau fisier NIfTI (.nii / .nii.gz)")
     ap.add_argument("-o", "--output", required=True, help="fisier .stl / .obj / .ply")
     ap.add_argument("--preset", choices=list(PRESETS), help="interval HU predefinit")
     ap.add_argument("--lower", type=float, help="prag inferior (HU)")
@@ -45,6 +45,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--spacing", type=float, help="pasul izotrop in mm (implicit: cel mai mic)")
     ap.add_argument("--surface", choices=SURFACE_MODES, default=SURFACE_MODES[0],
                     help="Marching Cubes pe valorile HU sau pe masca binara")
+    ap.add_argument("--ai", action="store_true",
+                    help="segmentare pe organe cu TotalSegmentator (pip install dicom3d[ai])")
+    ap.add_argument("--ai-full", action="store_true",
+                    help="cu --ai: modelul complet la 1,5 mm (mai lent, ~8 GB RAM) in loc de cel rapid")
+    ap.add_argument("--ai-raw", action="store_true",
+                    help="cu --ai: suprafata doar din masca retelei, fara marginea din valorile HU")
     args = ap.parse_args(argv)
 
     preset = PRESETS[args.preset or "Os"]
@@ -69,12 +75,22 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     t0 = time.perf_counter()
-    volume = load_folder(args.folder)
+    volume = load_volume(args.folder)
     print(f"Volum: {volume.shape_xyz} voxeli, spatiere {volume.spacing} mm")
     for w in (volume.sampling.warnings() if volume.sampling else []):
         print(f"Atentie: {w}")
     mesh_opts = MeshOptions(args.smooth, args.decimate, surface=args.surface)
-    result = reconstruct(volume, params, mesh_opts, preprocess_options=pre)
+    if args.ai:
+        from dicom3d.segmentation.ai import PRESET_TO_GROUP
+
+        group = PRESET_TO_GROUP.get(args.preset or "Os")
+        if group is None:
+            ap.error(f"--ai nu are corespondent pentru {args.preset}")
+        result, _ = reconstruct_ai(volume, group, mesh_opts, fast=not args.ai_full,
+                                   refine_hu=None if args.ai_raw else (params.lower, params.upper))
+        print(f"AI ({group}): {', '.join(result.label.params['structuri'])}")
+    else:
+        result = reconstruct(volume, params, mesh_opts, preprocess_options=pre)
     export_mesh(result.mesh, args.output)
     s = result.stats
     print(f"Prag [{params.lower:g}, {params.upper:g}] HU -> {s['triangles']} triunghiuri, "

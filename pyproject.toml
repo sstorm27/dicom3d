@@ -17,6 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pyinstaller>=6"]
+# segmentare pe organe cu TotalSegmentator (aduce PyTorch, ~1 GB; merge si fara GPU)
+ai = ["TotalSegmentator>=2.4"]
 
 [project.scripts]
 dicom3d-cli = "dicom3d.cli:main"
