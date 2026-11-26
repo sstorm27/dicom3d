@@ -24,7 +24,7 @@ import numpy as np
 import SimpleITK as sitk
 from vtkmodules.util import numpy_support
 
-from dicom3d.io.dicom_loader import Volume
+from dicom3d.data import Volume
 from dicom3d.mesh.surface import MeshOptions
 from dicom3d.pipeline import NO_PREPROCESSING, ThresholdParams, reconstruct
 from dicom3d.preprocessing import PreprocessOptions
@@ -86,7 +86,7 @@ def make_ct(shape: Shape, spacing, size_mm=48.0, psf_mm=0.6, noise=20.0, seed=0,
     coarse += np.random.default_rng(seed).normal(0, noise, coarse.shape).astype(np.float32)
     # originea = coltul gridului + jumatate de voxel (centrul primului voxel)
     origin = tuple(spacing / 2)
-    return Volume(coarse.astype(np.float32), tuple(spacing), origin, (1, 0, 0, 0, 1, 0, 0, 0, 1))
+    return Volume.from_array(coarse.astype(np.float32), tuple(spacing), origin)
 
 
 CONFIGS = {
@@ -106,7 +106,7 @@ CONFIGS = {
 
 def evaluate(shape: Shape, volume: Volume, pre, mesh_opts, threshold: float):
     t0 = time.perf_counter()
-    res = reconstruct(volume, ThresholdParams(threshold, 3000), mesh_opts, pre)
+    res = reconstruct(volume, ThresholdParams(threshold, 3000), mesh_opts, preprocess_options=pre)
     dt = time.perf_counter() - t0
     pts = numpy_support.vtk_to_numpy(res.mesh.GetPoints().GetData()).astype(float)
     d = np.abs(shape.distance(pts))

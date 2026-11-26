@@ -11,7 +11,6 @@ import sys
 import time
 
 from dicom3d.io.dicom_loader import load_folder
-from dicom3d.io.series_check import check_geometry
 from dicom3d.mesh.surface import SURFACE_MODES, MeshOptions, export_mesh
 from dicom3d.pipeline import ThresholdParams, reconstruct
 from dicom3d.preprocessing import DENOISE_METHODS, INTERPOLATIONS, PreprocessOptions
@@ -72,11 +71,10 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.perf_counter()
     volume = load_folder(args.folder)
     print(f"Volum: {volume.shape_xyz} voxeli, spatiere {volume.spacing} mm")
-    if volume.info is not None:
-        for w in check_geometry(volume.info):
-            print(f"Atentie: {w}")
+    for w in (volume.sampling.warnings() if volume.sampling else []):
+        print(f"Atentie: {w}")
     mesh_opts = MeshOptions(args.smooth, args.decimate, surface=args.surface)
-    result = reconstruct(volume, params, mesh_opts, pre)
+    result = reconstruct(volume, params, mesh_opts, preprocess_options=pre)
     export_mesh(result.mesh, args.output)
     s = result.stats
     print(f"Prag [{params.lower:g}, {params.upper:g}] HU -> {s['triangles']} triunghiuri, "

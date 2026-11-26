@@ -23,6 +23,35 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - vizualizare 3D interactiva (VTK) cu marcaj de orientare
 - export STL (binar), OBJ, PLY; statistici (triunghiuri, volum in ml, suprafata)
 - interfata in linie de comanda pentru procesare in lot
+- verifica la incarcare pozitiile feliilor (felii lipsa sau duplicate, pas variabil,
+  gantry inclinat) si avertizeaza cand volumul ar iesi deformat
+
+Structurile de date (volum, geometrie, metadate, harta de etichete) si sistemele de
+coordonate sunt descrise in [docs/structura-datelor.md](docs/structura-datelor.md).
+
+## Interfata
+
+Gandita ca un instrument de masura: grafit aproape monocrom, colturi drepte, linii fine.
+Panoul lateral, felia si modelul 3D sunt blocuri separate de un culoar ingust. Singura
+culoare din ecran este tesutul ales; actiunile si selectia sunt albe. Fontul este
+Instrument Sans, cu varianta semi-condensata si cifre tabulare pentru valori (inclus in
+aplicatie, licenta OFL).
+
+- folderul DICOM se poate trage direct in fereastra (sau Ctrl+O)
+- rigla Hounsfield: o singura scara gradata de la -1024 la 3071 HU care aduna pragul,
+  histograma seriei si presetarile de tesut; se trag capetele pragului sau se da clic pe
+  un tesut (sagetile sus/jos trec la tesutul vecin), iar valorile se pot scrie si in campuri
+- fereastra CT a feliei urmeaza tesutul ales (os, tesut moale, plamani)
+- felia are rigle in cm, o scala gradata pentru felie in dreapta si informatiile in colturi
+  (felia, grosimea, fereastra W/L, HU sub cursor, orientarea A/P/R/L); rotita mouse-ului,
+  sagetile, PgUp/PgDn, Home/End schimba felia
+- vederi 3D standard (anterior, lateral, superior) cu rotire lina, captura PNG;
+  opacitatea modelului se randeaza corect (depth peeling); cubul de orientare
+  (L/R, A/P, S/I) arata din ce parte privesti
+- avertisment cand modelul afisat nu mai corespunde setarilor
+- fereastra se potriveste ecranului (porneste maximizata pe ecrane mici); in fereastra
+  ingusta viewport-urile trec unul sub altul
+- scurtaturi: Ctrl+O deschide, Ctrl+G genereaza, Ctrl+E exporta, R reseteaza camera
 
 ## Instalare (dezvoltare)
 
@@ -76,12 +105,11 @@ pe Linux si Windows si publica build-ul Windows ca artefact descarcabil.
 ```
 src/dicom3d/
   io/dicom_loader.py        incarcare serii DICOM (SimpleITK/GDCM)
-  io/series_check.py        verificarea geometriei feliilor
   preprocessing.py          curatare HU, reducere zgomot, reesantionare izotropa
   segmentation/threshold.py segmentare prin prag + post-procesare
   mesh/surface.py           Marching Cubes, netezire, decimare, export
   pipeline.py               volum -> masca -> mesh
-  ui/                       interfata PySide6 + VTK
+  ui/                       interfata PySide6 + VTK (tema in ui/theme.py, componente in ui/widgets.py)
   cli.py                    linie de comanda
 scripts/make_phantom.py     generator de serie CT sintetica
 scripts/evaluate_accuracy.py  precizia reconstructiei pe fantome analitice

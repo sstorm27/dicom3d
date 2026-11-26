@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 import SimpleITK as sitk
 from dicom3d import vtk_lite as vtk
 
-from dicom3d.io.dicom_loader import Volume
+from dicom3d.data import Label, LabelMap, Volume
 from dicom3d.mesh.surface import (
     MeshOptions,
     inside_field,
@@ -40,9 +40,17 @@ class ThresholdParams:
 
 @dataclass
 class ReconstructionResult:
-    mask: np.ndarray  # pe gridul volumului original, pentru afisarea peste felii
-    mesh: vtk.vtkPolyData
+    """Ce produce o reconstructie: structura segmentata si suprafata ei 3D."""
+
+    segmentation: LabelMap  # pe aceeasi grila ca volumul de intrare
+    label: Label  # structura reconstruita din `segmentation`
+    mesh: vtk.vtkPolyData  # in coordonatele pacientului (LPS, mm)
     stats: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def mask(self) -> np.ndarray:
+        """Masca binara uint8 (z, y, x) a structurii reconstruite."""
+        return self.segmentation.mask(self.label.value)
 
 
 # fara preprocesare: comportamentul de dinainte (util pentru comparatii in lucrare)
@@ -53,8 +61,15 @@ def reconstruct(
     volume: Volume,
     params: ThresholdParams,
     mesh_options: MeshOptions | None = None,
+    label: Label | None = None,
     preprocess_options: PreprocessOptions | None = None,
 ) -> ReconstructionResult:
+    """Preproceseaza, segmenteaza prin prag, apoi extrage suprafata cu Marching Cubes.
+
+    `label` da numele si culoarea structurii; implicit "Segment" cu valoarea 1.
+    Segmentarea se face pe volumul preprocesat (eventual reesantionat), dar harta de
+    etichete intoarsa e pe grila volumului de intrare, ca sa poata fi afisata peste felii.
+    """
     mesh_options = mesh_options or MeshOptions()
     pre = preprocess_options or PreprocessOptions()
 
@@ -87,5 +102,10 @@ def reconstruct(
             image = sitk.GetArrayFromImage(img)
         fld = inside_field(image, mask, params.lower, params.upper)
         mesh = marching_cubes_field(fld, work.spacing, work.origin, work.direction, mesh_options)
-    display_mask = mask_to_grid(mask, work, volume)
-    return ReconstructionResult(display_mask, mesh, mesh_stats(mesh))
+
+    if label is None:
+        label = Label(1, "Segment")
+    label = Label(label.value, label.name, label.color, "prag",
+                  {**asdict(params), "preprocesare": asdict(pre), "suprafata": mesh_options.surface})
+    segmentation = LabelMap.from_mask(mask_to_grid(mask, work, volume), volume.geometry, label)
+    return ReconstructionResult(segmentation, label, mesh, mesh_stats(mesh))

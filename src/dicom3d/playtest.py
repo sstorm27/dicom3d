@@ -102,11 +102,8 @@ class Playtest:
         self.log(f"    captura: {path.name}")
 
     def choose_preset(self, name: str):
-        """Ca un click in lista: activated se emite doar la alegerea utilizatorului."""
-        combo = self.w.preset_combo
-        idx = combo.findText(name)
-        combo.setCurrentIndex(idx)
-        combo.activated.emit(idx)
+        """Ca un click pe numele tesutului de pe scala Hounsfield."""
+        self.w.ruler.activate(name)
 
     def build(self, label: str) -> float | None:
         w = self.w
@@ -145,14 +142,14 @@ class Playtest:
         if not self.wait(lambda: w.volume is not None or self.dialogs, 300) or w.volume is None:
             self.log("  ESEC: seria nu s-a incarcat")
             return self.finish()
-        self.log(f"  OK in {time.time() - t0:.1f} s: " + w.info_label.text().replace("\n", " | "))
+        self.log(f"  OK in {time.time() - t0:.1f} s: " + w.series_summary())
         self.screenshot("01_incarcat")
 
         self.log("2. Ferestre 2D si felii")
         for name in WINDOWS:
-            w.window_combo.setCurrentText(name)
+            w.window_seg.setCurrentText(name)
             self.pump(0.1)
-        w.window_combo.setCurrentText("Os")
+        w.window_seg.setCurrentText("Os")
         for v in (0, w.volume.array.shape[0] - 1, w.volume.array.shape[0] // 2):
             w.slice_view.slider.setValue(v)
             self.pump(0.1)
@@ -191,15 +188,19 @@ class Playtest:
         w.fill_check.setChecked(False)
         w.sigma_spin.setValue(0)
 
-        self.log("5b. Comparatie: reconstructia veche (masca binara, felii anizotrope)")
-        w.surface_combo.setCurrentText("binar")
+        self.log("5b. Comparatie: reconstructia veche (doar cea mai mare componenta, "
+                 "masca binara, felii anizotrope)")
+        w._min_component_ml = 0.0
+        w.solid_check.setChecked(False)
+        w.gray_check.setChecked(False)
         w.iso_check.setChecked(False)
         self.build("Os vechi")
-        self.screenshot("14_os_binar_anizotrop")
-        w.surface_combo.setCurrentText("nivele de gri")
+        self.screenshot("14_os_vechi")
+        w._apply_preset("Os", animate=False)
+        w.gray_check.setChecked(True)
         w.iso_check.setChecked(True)
         self.build("Os nou")
-        self.screenshot("15_os_nivele_gri_izotrop")
+        self.screenshot("15_os_nou")
 
         self.log("6. Export")
         for ext in ("stl", "obj", "ply"):

@@ -11,12 +11,12 @@ Modelele matematice si sursele lor sunt descrise in documentatie:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import SimpleITK as sitk
 
-from dicom3d.io.dicom_loader import Volume
+from dicom3d.data import Geometry, Volume
 
 # aerul in CT; valorile mai mici sunt umplutura din afara campului de reconstructie
 AIR_HU = -1024.0
@@ -72,7 +72,7 @@ def denoise(volume: Volume, options: PreprocessOptions) -> Volume:
             conductanceScalingUpdateInterval=1,
             numberOfIterations=options.diffusion_iterations,
         )
-    return Volume.from_sitk(img, info=volume.info)
+    return replace(volume, array=sitk.GetArrayFromImage(img))
 
 
 def isotropic_spacing(volume: Volume, options: PreprocessOptions) -> float:
@@ -118,7 +118,7 @@ def resample_isotropic(volume: Volume, options: PreprocessOptions) -> Volume:
     # B-spline cubic depaseste usor valorile vecine la marginile abrupte (os/aer)
     lo, hi = float(volume.array.min()), float(volume.array.max())
     out = sitk.Clamp(out, sitk.sitkFloat32, lo, hi)
-    return Volume.from_sitk(out, info=volume.info)
+    return replace(volume, array=sitk.GetArrayFromImage(out), geometry=Geometry.from_sitk(out))
 
 
 def crop_to_range(volume: Volume, lower: float, upper: float, margin_mm: float = 6.0) -> Volume:
@@ -138,13 +138,10 @@ def crop_to_range(volume: Volume, lower: float, upper: float, margin_mm: float =
         return volume
     d = np.array(volume.direction, dtype=float).reshape(3, 3)
     origin = np.array(volume.origin) + d @ (np.array([x0, y0, z0]) * np.array(volume.spacing))
-    return Volume(
-        array=np.ascontiguousarray(volume.array[z0:z1, y0:y1, x0:x1]),
-        spacing=volume.spacing,
-        origin=tuple(float(v) for v in origin),
-        direction=volume.direction,
-        info=volume.info,
-    )
+    array = np.ascontiguousarray(volume.array[z0:z1, y0:y1, x0:x1])
+    geometry = Geometry.from_shape(array.shape, volume.spacing,
+                                   tuple(float(v) for v in origin), volume.direction)
+    return replace(volume, array=array, geometry=geometry)
 
 
 def preprocess(volume: Volume, options: PreprocessOptions) -> Volume:
@@ -160,8 +157,7 @@ def mask_to_grid(mask: np.ndarray, source: Volume, reference: Volume) -> np.ndar
 
     Folosit ca masca sa poata fi afisata peste feliile originale.
     """
-    if mask.shape == reference.array.shape and np.allclose(source.spacing, reference.spacing) \
-            and np.allclose(source.origin, reference.origin):
+    if source.geometry.same_grid(reference.geometry):
         return mask
     src = sitk.GetImageFromArray(mask.astype(np.uint8))
     src.SetSpacing(source.spacing)
@@ -176,4 +172,4 @@ def mask_to_grid(mask: np.ndarray, source: Volume, reference: Volume) -> np.ndar
 
 
 def _with_array(volume: Volume, array: np.ndarray) -> Volume:
-    return Volume(array, volume.spacing, volume.origin, volume.direction, volume.info)
+    return replace(volume, array=array)
