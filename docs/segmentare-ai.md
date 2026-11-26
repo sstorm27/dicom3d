@@ -27,11 +27,11 @@ Executabilul `.exe` nu include AI (PyTorch e prea mare); se rulează din sursă.
    rețeaua completează doar ce pragul pierde (sternul, cartilajele costale, spongioasa)
    și elimină ce nu e os (vase cu contrast, cabluri, masa).
 
-| Seria NSCLC (3 mm), os | Timp (CPU, 4 nuclee) | RAM |
-|---|---|---|
-| Prag 250 HU | ~15 s | ~2 GB |
-| AI rapid (3 mm) + HU | ~1 min | ~3 GB |
-| AI complet (1,5 mm) + HU | ~14 min | ~6 GB |
+| Seria NSCLC (3 mm), os | Timp (CPU, 4 nuclee) |
+|---|---|
+| Prag 250 HU | ~15 s |
+| AI rapid (3 mm) + HU | ~1 min |
+| AI complet (1,5 mm) + HU | ~14 min (a folosit ~6 GB RAM) |
 
 ## Grosimea feliei: studiu
 
