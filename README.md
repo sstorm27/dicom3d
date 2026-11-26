@@ -17,6 +17,11 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - vizualizare 3D interactiva (VTK) cu marcaj de orientare
 - export STL (binar), OBJ, PLY; statistici (triunghiuri, volum in ml, suprafata)
 - interfata in linie de comanda pentru procesare in lot
+- verifica la incarcare pozitiile feliilor (felii lipsa sau duplicate, pas variabil,
+  gantry inclinat) si avertizeaza cand volumul ar iesi deformat
+
+Structurile de date (volum, geometrie, metadate, harta de etichete) si sistemele de
+coordonate sunt descrise in [docs/structura-datelor.md](docs/structura-datelor.md).
 
 ## Interfata
 

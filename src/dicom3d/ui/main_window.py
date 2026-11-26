@@ -27,7 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from dicom3d import __version__
-from dicom3d.io.dicom_loader import SeriesInfo, Volume, find_series, load_series
+from dicom3d.data import Label, SeriesInfo, Volume
+from dicom3d.io.dicom_loader import find_series, load_series
 from dicom3d.mesh.surface import MeshOptions, export_mesh
 from dicom3d.pipeline import ReconstructionResult, ThresholdParams, reconstruct
 from dicom3d.segmentation.threshold import PRESETS
@@ -520,8 +521,13 @@ class MainWindow(QMainWindow):
         self.ruler.set_range(self.lower_spin.value(), self.upper_spin.value())
         self._update_preview()
         self._set_busy(False)
-        self._set_status("Serie încărcată. Alege țesutul pe scala Hounsfield, ajustează pragul și "
-                         "generează modelul 3D.", "ok")
+        problems = volume.sampling.warnings() if volume.sampling else []
+        if problems:
+            self._set_status("Serie încărcată, dar verifică feliile: " + "; ".join(problems) +
+                             ". Modelul 3D poate fi deformat.", "warn")
+        else:
+            self._set_status("Serie încărcată. Alege țesutul pe scala Hounsfield, ajustează "
+                             "pragul și generează modelul 3D.", "ok")
 
     def series_summary(self) -> str:
         """Rezumatul seriei pe un rand (folosit de playtest)."""
@@ -557,7 +563,11 @@ class MainWindow(QMainWindow):
         self._building_params = (lo, hi, opts.smoothing_iterations, self.decim_spin.value())
         self._set_busy(True, "Segmentez și generez suprafața (Marching Cubes)…")
         self._build_started = _now()
-        self._run(reconstruct, self.volume, params, opts, on_done=self._on_model_built)
+        tissue = self._building_tissue
+        hex_color = theme.TISSUE_COLORS.get(tissue, theme.TEXT).lstrip("#")
+        label = Label(1, tissue or "Segment",
+                      tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+        self._run(reconstruct, self.volume, params, opts, label, on_done=self._on_model_built)
 
     def _on_model_built(self, result: ReconstructionResult):
         self.result = result

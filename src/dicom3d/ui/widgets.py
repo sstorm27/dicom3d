@@ -695,7 +695,7 @@ class BusyBar(QWidget):
 class StatusDot(QWidget):
     """Patratelul de stare din bara de jos: gata, in lucru sau eroare."""
 
-    COLORS = {"ok": theme.OK, "busy": theme.TEXT, "error": theme.DANGER, "idle": theme.FAINT}
+    COLORS = {"ok": theme.OK, "warn": theme.WARN, "busy": theme.TEXT, "error": theme.DANGER, "idle": theme.FAINT}
 
     def __init__(self, parent=None):
         super().__init__(parent)
