@@ -14,7 +14,7 @@ Nu importa vtkIOGeometry: importul lui Python incarca vtkFiltersCellGrid
 import vtkmodules.vtkInteractionStyle  # noqa: F401
 import vtkmodules.vtkRenderingFreeType  # noqa: F401
 import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
-from vtkmodules.vtkCommonCore import VTK_UNSIGNED_CHAR
+from vtkmodules.vtkCommonCore import VTK_FLOAT, VTK_UNSIGNED_CHAR
 from vtkmodules.vtkCommonDataModel import vtkImageData, vtkPolyData
 from vtkmodules.vtkCommonMath import vtkMatrix4x4
 from vtkmodules.vtkCommonTransforms import vtkTransform

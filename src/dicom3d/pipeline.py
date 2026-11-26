@@ -1,14 +1,28 @@
-"""Pipeline-ul complet: volum -> masca -> mesh. Folosit de interfata si de CLI."""
+"""Pipeline-ul complet: volum -> preprocesare -> masca -> mesh. Folosit de interfata si de CLI."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
 import numpy as np
+import SimpleITK as sitk
 from dicom3d import vtk_lite as vtk
 
 from dicom3d.data import Label, LabelMap, Volume
-from dicom3d.mesh.surface import MeshOptions, marching_cubes, mesh_stats
+from dicom3d.mesh.surface import (
+    MeshOptions,
+    inside_field,
+    marching_cubes,
+    marching_cubes_field,
+    mesh_stats,
+)
+from dicom3d.preprocessing import (
+    PreprocessOptions,
+    clean_hu,
+    crop_to_range,
+    mask_to_grid,
+    preprocess,
+)
 from dicom3d.segmentation.threshold import threshold_mask
 
 
@@ -20,6 +34,8 @@ class ThresholdParams:
     fill_holes: bool = False
     smoothing_sigma_mm: float = 0.0
     exclude_outside: bool = False
+    min_component_ml: float = 0.0
+    solid: bool = False
 
 
 @dataclass
@@ -37,28 +53,59 @@ class ReconstructionResult:
         return self.segmentation.mask(self.label.value)
 
 
+# fara preprocesare: comportamentul de dinainte (util pentru comparatii in lucrare)
+NO_PREPROCESSING = PreprocessOptions(denoise="niciuna", isotropic=False)
+
+
 def reconstruct(
     volume: Volume,
     params: ThresholdParams,
     mesh_options: MeshOptions | None = None,
     label: Label | None = None,
+    preprocess_options: PreprocessOptions | None = None,
 ) -> ReconstructionResult:
-    """Segmenteaza prin prag, apoi extrage suprafata cu Marching Cubes.
+    """Preproceseaza, segmenteaza prin prag, apoi extrage suprafata cu Marching Cubes.
 
     `label` da numele si culoarea structurii; implicit "Segment" cu valoarea 1.
+    Segmentarea se face pe volumul preprocesat (eventual reesantionat), dar harta de
+    etichete intoarsa e pe grila volumului de intrare, ca sa poata fi afisata peste felii.
     """
+    mesh_options = mesh_options or MeshOptions()
+    pre = preprocess_options or PreprocessOptions()
+
+    work = clean_hu(volume)
+    # taiem la regiunea de interes inainte de filtrare si reesantionare; nu si cand
+    # eliminam aerul exterior, care se recunoaste tocmai dupa marginile imaginii
+    if not params.exclude_outside:
+        work = crop_to_range(work, params.lower, params.upper)
+    work = preprocess(work, pre)
+
     mask = threshold_mask(
-        volume,
+        work,
         params.lower,
         params.upper,
         keep_largest=params.keep_largest,
         fill_holes=params.fill_holes,
         smoothing_sigma_mm=params.smoothing_sigma_mm,
         exclude_outside=params.exclude_outside,
+        min_component_ml=params.min_component_ml,
+        solid=params.solid,
     )
-    mesh = marching_cubes(mask, volume.spacing, volume.origin, volume.direction, mesh_options)
+    if mesh_options.surface == "binar":
+        mesh = marching_cubes(mask, work.spacing, work.origin, work.direction, mesh_options)
+    else:
+        image = work.array
+        if params.smoothing_sigma_mm > 0:
+            # aceeasi imagine pe care s-a facut pragul
+            img = sitk.SmoothingRecursiveGaussian(
+                sitk.Cast(work.to_sitk(), sitk.sitkFloat32), params.smoothing_sigma_mm)
+            image = sitk.GetArrayFromImage(img)
+        fld = inside_field(image, mask, params.lower, params.upper)
+        mesh = marching_cubes_field(fld, work.spacing, work.origin, work.direction, mesh_options)
+
     if label is None:
         label = Label(1, "Segment")
-    label = Label(label.value, label.name, label.color, "prag", asdict(params))
-    segmentation = LabelMap.from_mask(mask, volume.geometry, label)
+    label = Label(label.value, label.name, label.color, "prag",
+                  {**asdict(params), "preprocesare": asdict(pre), "suprafata": mesh_options.surface})
+    segmentation = LabelMap.from_mask(mask_to_grid(mask, work, volume), volume.geometry, label)
     return ReconstructionResult(segmentation, label, mesh, mesh_stats(mesh))

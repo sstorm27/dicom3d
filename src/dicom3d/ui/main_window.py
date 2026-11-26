@@ -31,6 +31,7 @@ from dicom3d.data import Label, SeriesInfo, Volume
 from dicom3d.io.dicom_loader import find_series, load_series
 from dicom3d.mesh.surface import MeshOptions, export_mesh
 from dicom3d.pipeline import ReconstructionResult, ThresholdParams, reconstruct
+from dicom3d.preprocessing import PreprocessOptions
 from dicom3d.segmentation.threshold import PRESETS
 from dicom3d.ui import icons, theme
 from dicom3d.ui.slice_view import SliceView
@@ -84,6 +85,11 @@ LARGE_TEXT = ("Model foarte mare: rotirea și exportul pot fi lente. "
               "Mărește Simplificarea sau folosește un prag mai strict.")
 
 
+# eticheta din interfata -> metoda din preprocessing.DENOISE_METHODS
+DENOISE_LABELS = {"Fără": "niciuna", "Gaussian": "gaussian", "Median": "median",
+                  "Anizotrop": "anizotropic"}
+
+
 def _section(title: str, hint: str = "") -> QHBoxLayout:
     head = QHBoxLayout()
     head.setContentsMargins(0, 0, 0, 0)
@@ -116,6 +122,7 @@ class MainWindow(QMainWindow):
         self._busy = False
         self._built_tissue = ""
         self._summary = ""
+        self._min_component_ml = 0.0  # setat de presetare
 
         self.slice_view = SliceView()
         self.view3d = View3D()
@@ -245,16 +252,48 @@ class MainWindow(QMainWindow):
         sec, g = _column((20, 10, 20, 12), 0)
         g.addLayout(_section("Curățare"))
         g.addSpacing(4)
-        self.largest_check = CheckRow("Doar cea mai mare componentă")
+        self.largest_check = CheckRow("Elimină bucățile mici izolate")
+        self.largest_check.setToolTip(
+            "Păstrează cea mai mare componentă și, la os, și celelalte componente mari\n"
+            "(clavicule, omoplați, coaste superioare), nu doar coloana.")
         self.largest_check.setChecked(True)
         self.outside_check = CheckRow("Fără aerul din jurul corpului")
         self.fill_check = CheckRow("Umple golurile")
-        for c in (self.largest_check, self.outside_check, self.fill_check):
+        self.solid_check = CheckRow("Os compact")
+        self.solid_check.setToolTip(
+            "Umple spongioasa vertebrelor și canalul medular al coastelor,\n"
+            "ca osul să nu arate ca un burete sau ca un tub gol.")
+        for c in (self.largest_check, self.outside_check, self.fill_check, self.solid_check):
             g.addWidget(c)
         g.addSpacing(6)
         self.sigma_spin = ValueSlider("Netezire imagine", 0, 5, step=0.5, suffix=" mm", decimals=1)
         self.sigma_spin.setToolTip("Netezire gaussiană a imaginii înainte de prag (reduce zgomotul)")
         g.addWidget(self.sigma_spin)
+        col.addWidget(sec)
+        col.addWidget(separator())
+
+        # calitatea reconstructiei (preprocesare + tipul suprafetei)
+        sec, g = _column((20, 10, 20, 12), 0)
+        g.addLayout(_section("Calitate", "zgomot"))
+        g.addSpacing(6)
+        self.denoise_seg = SegmentedControl(list(DENOISE_LABELS), "Fără")
+        self.denoise_seg.setToolTip(
+            "Reducerea zgomotului înainte de prag. Anizotrop (Perona–Malik) netezește\n"
+            "zonele omogene și păstrează marginile; se alege automat după țesut.")
+        g.addWidget(self.denoise_seg)
+        g.addSpacing(6)
+        self.iso_check = CheckRow("Voxeli izotropi (B-spline)")
+        self.iso_check.setToolTip(
+            "Reeșantionează volumul la voxeli cubici înainte de prag, ca suprafața\n"
+            "să nu mai aibă trepte cât grosimea feliei.")
+        self.iso_check.setChecked(True)
+        self.gray_check = CheckRow("Margine sub-voxel (valori HU)")
+        self.gray_check.setToolTip(
+            "Marching Cubes pe valorile HU: marginea se pune între voxeli după valorile\n"
+            "reale. Debifat: pe masca 0/1, cu marginea mereu la jumătatea distanței.")
+        self.gray_check.setChecked(True)
+        g.addWidget(self.iso_check)
+        g.addWidget(self.gray_check)
         col.addWidget(sec)
         col.addWidget(separator())
 
@@ -298,8 +337,10 @@ class MainWindow(QMainWindow):
         for w in (self.lower_spin, self.upper_spin, self.sigma_spin, self.smooth_spin,
                   self.decim_spin):
             w.valueChanged.connect(self._mark_stale)
-        for check in (self.largest_check, self.fill_check, self.outside_check):
+        for check in (self.largest_check, self.fill_check, self.outside_check,
+                      self.solid_check, self.iso_check, self.gray_check):
             check.toggled.connect(self._mark_stale)
+        self.denoise_seg.currentTextChanged.connect(self._mark_stale)
         return side
 
     def _viewport(self, title: str, header_widgets, content: QWidget,
@@ -554,10 +595,17 @@ class MainWindow(QMainWindow):
             fill_holes=self.fill_check.isChecked(),
             smoothing_sigma_mm=self.sigma_spin.value(),
             exclude_outside=self.outside_check.isChecked(),
+            min_component_ml=self._min_component_ml if self.largest_check.isChecked() else 0.0,
+            solid=self.solid_check.isChecked(),
         )
         opts = MeshOptions(
             smoothing_iterations=int(self.smooth_spin.value()),
             decimation=self.decim_spin.value() / 100,
+            surface="nivele de gri" if self.gray_check.isChecked() else "binar",
+        )
+        pre = PreprocessOptions(
+            denoise=DENOISE_LABELS[self.denoise_seg.currentText()],
+            isotropic=self.iso_check.isChecked(),
         )
         self._building_tissue = self.ruler.current()
         self._building_params = (lo, hi, opts.smoothing_iterations, self.decim_spin.value())
@@ -567,7 +615,8 @@ class MainWindow(QMainWindow):
         hex_color = theme.TISSUE_COLORS.get(tissue, theme.TEXT).lstrip("#")
         label = Label(1, tissue or "Segment",
                       tuple(int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4)))
-        self._run(reconstruct, self.volume, params, opts, label, on_done=self._on_model_built)
+        self._run(reconstruct, self.volume, params, opts, label, pre,
+                  on_done=self._on_model_built)
 
     def _on_model_built(self, result: ReconstructionResult):
         self.result = result
@@ -628,6 +677,10 @@ class MainWindow(QMainWindow):
         if self.result is None or self._stale:
             self.slice_view.set_overlay_color(color)
         self.outside_check.setChecked(p.exclude_outside)
+        self.solid_check.setChecked(p.solid)
+        self.denoise_seg.setCurrentText(
+            next(k for k, v in DENOISE_LABELS.items() if v == p.denoise))
+        self._min_component_ml = p.min_component_ml
         for spin, value in ((self.lower_spin, p.lower), (self.upper_spin, p.upper)):
             spin.blockSignals(True)
             spin.setValue(int(value))

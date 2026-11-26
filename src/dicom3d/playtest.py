@@ -188,6 +188,20 @@ class Playtest:
         w.fill_check.setChecked(False)
         w.sigma_spin.setValue(0)
 
+        self.log("5b. Comparatie: reconstructia veche (doar cea mai mare componenta, "
+                 "masca binara, felii anizotrope)")
+        w._min_component_ml = 0.0
+        w.solid_check.setChecked(False)
+        w.gray_check.setChecked(False)
+        w.iso_check.setChecked(False)
+        self.build("Os vechi")
+        self.screenshot("14_os_vechi")
+        w._apply_preset("Os", animate=False)
+        w.gray_check.setChecked(True)
+        w.iso_check.setChecked(True)
+        self.build("Os nou")
+        self.screenshot("15_os_nou")
+
         self.log("6. Export")
         for ext in ("stl", "obj", "ply"):
             self.save_path = str(self.out / f"model.{ext}")

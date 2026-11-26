@@ -19,6 +19,13 @@ def _log_dir() -> Path:
 def _setup_crash_log() -> Path:
     """In .exe nu exista consola, asa ca erorile ajung intr-un fisier de log."""
     log_path = _log_dir() / "dicom3d.log"
+    # pastram jurnalul rularii anterioare: daca aplicatia a cazut, urmele raman
+    # in dicom3d.prev.log chiar dupa ce o repornim
+    if log_path.exists():
+        try:
+            log_path.replace(log_path.with_suffix(".prev.log"))
+        except OSError:
+            pass  # alta instanta tine fisierul deschis
     log = open(log_path, "w", encoding="utf-8", buffering=1)  # noqa: SIM115 - ramane deschis
     faulthandler.enable(log)  # prinde si caderile din codul nativ (Qt, VTK)
     if sys.stdout is None:  # executabil fara consola
