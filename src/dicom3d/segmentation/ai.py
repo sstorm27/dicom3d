@@ -100,7 +100,16 @@ def segment(volume: Volume, fast: bool = True, device: str = "cpu") -> LabelMap:
         # citit inapoi cade exact pe aceeasi grila
         sitk.WriteImage(sitk.Cast(volume.to_sitk(), sitk.sitkInt16), str(src))
         totalsegmentator(src, dst, ml=True, fast=fast, device=device, quiet=True)
-        seg = sitk.ReadImage(str(dst))
+        return load_segmentation(dst, volume, fast)
+
+
+def load_segmentation(path: str | Path, volume: Volume, fast: bool = False) -> LabelMap:
+    """Citeste o segmentare TotalSegmentator salvata (fisier --ml .nii.gz).
+
+    Util cand reteaua ruleaza separat, de ex. modelul complet pe Google Colab:
+    `TotalSegmentator -i ct.nii.gz -o seg.nii.gz --ml`, apoi fisierul se incarca aici.
+    """
+    seg = sitk.ReadImage(str(path))
     seg = sitk.Resample(seg, volume.to_sitk(), sitk.Transform(), sitk.sitkNearestNeighbor,
                         0, sitk.sitkUInt8)
     array = sitk.GetArrayFromImage(seg).astype(np.uint8)

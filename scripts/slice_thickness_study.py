@@ -8,6 +8,9 @@ Decathlon Task06_Lung, CC BY-SA 4.0) si simulam aceeasi achizitie cu felii de 3 
   1. prag clasic (pipeline-ul aplicatiei: B-spline izotrop + Marching Cubes pe HU)
   2. segmentare AI (TotalSegmentator) + marginea din HU
 
+Fiecare metoda e comparata cu ea insasi pe feliile subtiri: masuram cat pierde
+din cauza feliilor groase, nu cat de buna e segmentarea in sine.
+
 Masuram distanta dintre suprafete in ambele sensuri:
   - test -> referinta: cat de departe sunt suprafetele gasite (acuratete);
   - referinta -> test: cat din anatomia reala lipseste (completitudine, ex. sternul).
@@ -145,12 +148,21 @@ def main(argv=None):
                                              refine_hu=(p.lower, p.upper))
     print(f"AI pe felii groase: {time.time() - t:.0f} s")
 
-    ref = results["referinta_subtire"].mesh
-    bounds = ref.GetBounds()
+    t = time.time()
+    results["referinta_subtire_ai"], _ = reconstruct_ai(thin, group, opts, fast=not args.ai_full,
+                                                        refine_hu=(p.lower, p.upper))
+    print(f"AI pe felii subtiri: {time.time() - t:.0f} s")
+
+    # fiecare metoda se compara cu ea insasi pe feliile subtiri: pragul prinde si
+    # vasele cu contrast, cablurile si masa (nu sunt os), deci n-ar fi o referinta
+    # corecta pentru AI, iar AI pe felii subtiri nu e una corecta pentru prag
+    refs = {"groasa_prag": "referinta_subtire", "groasa_ai": "referinta_subtire_ai"}
+    bounds = results["referinta_subtire"].mesh.GetBounds()
     for name, res in results.items():
         entry = {"triunghiuri": res.stats["triangles"], "volum_ml": res.stats["volume_ml"]}
-        if name != "referinta_subtire":
-            entry.update(surface_distance(res.mesh, ref))
+        if name in refs:
+            entry["referinta"] = refs[name]
+            entry.update(surface_distance(res.mesh, results[refs[name]].mesh))
         report[name] = entry
         render(res.mesh, out / f"{name}.png", bounds=bounds)
         export_mesh(res.mesh, out / f"{name}.stl")
