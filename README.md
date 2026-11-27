@@ -26,8 +26,13 @@ Segmentarea cu AI (nnU-Net, TotalSegmentator) urmeaza in etapele urmatoare.
 - verifica la incarcare pozitiile feliilor (felii lipsa sau duplicate, pas variabil,
   gantry inclinat) si avertizeaza cand volumul ar iesi deformat
 
+- baza de date SQLite cu pacientii, studiile si seriile CT (anonimizate): 18 serii reale de la
+  18 pacienti din patru colectii publice TCIA (torace si abdomen), descarcate din aplicatie,
+  plus orice folder propriu; cautare si filtre pe colectie si regiune, citarea fiecarei colectii
+
 Structurile de date (volum, geometrie, metadate, harta de etichete) si sistemele de
-coordonate sunt descrise in [docs/structura-datelor.md](docs/structura-datelor.md).
+coordonate sunt descrise in [docs/structura-datelor.md](docs/structura-datelor.md), iar baza
+de date (schema, sursele, licentele si citarile) in [docs/baza-de-date.md](docs/baza-de-date.md).
 
 ## Interfata
 
@@ -51,7 +56,9 @@ aplicatie, licenta OFL).
 - avertisment cand modelul afisat nu mai corespunde setarilor
 - fereastra se potriveste ecranului (porneste maximizata pe ecrane mici); in fereastra
   ingusta viewport-urile trec unul sub altul
-- scurtaturi: Ctrl+O deschide, Ctrl+G genereaza, Ctrl+E exporta, R reseteaza camera
+- **Bază de date** (Ctrl+B): lista seriilor din catalog, cu pacientul, colectia, regiunea,
+  numarul de felii si aparatul; sub tabel, licenta si citarea colectiei seriei alese
+- scurtaturi: Ctrl+B baza de date, Ctrl+O deschide, Ctrl+G genereaza, Ctrl+E exporta, R reseteaza camera
 
 ## Instalare (dezvoltare)
 
@@ -69,14 +76,16 @@ pip install -e ".[dev]"
 python -m dicom3d                      # interfata grafica
 python -m dicom3d C:\date\CT_serie     # deschide direct un folder
 dicom3d-cli C:\date\CT_serie --preset Os -o os.stl
+dicom3d-db descarca                    # seriile CT reale din TCIA, in baza de date
+dicom3d-db lista                       # ce e in baza de date
 ```
 
 ## Date de test
 
+- Date reale: `dicom3d-db descarca` (sau butonul din fereastra **Bază de date**) aduce 18 serii
+  CT anonimizate din TCIA (~1,2 GB) in `Documente\DICOM3D`; vezi [docs/baza-de-date.md](docs/baza-de-date.md).
 - Fantoma sintetica (fara date reale): `python scripts/make_phantom.py data/phantom`
-- Date reale publice: de ex. seturile CT din [The Cancer Imaging Archive](https://www.cancerimagingarchive.net/)
-  sau datele de exemplu din 3D Slicer. Folderul `data/` este ignorat de git:
-  nu urcati date medicale in repo.
+- Folderul `data/` este ignorat de git: nu urcati date medicale in repo.
 
 ## Evaluarea preciziei
 
@@ -108,10 +117,12 @@ src/dicom3d/
   preprocessing.py          curatare HU, reducere zgomot, reesantionare izotropa
   segmentation/threshold.py segmentare prin prag + post-procesare
   mesh/surface.py           Marching Cubes, netezire, decimare, export
+  catalog/                  baza de date SQLite (db.py), indexare (indexer.py), descarcare TCIA (download.py)
   pipeline.py               volum -> masca -> mesh
   ui/                       interfata PySide6 + VTK (tema in ui/theme.py, componente in ui/widgets.py)
   cli.py                    linie de comanda
 scripts/make_phantom.py     generator de serie CT sintetica
+scripts/genereaza_manifest_tcia.py  alegerea seriilor TCIA din indexul Imaging Data Commons
 scripts/evaluate_accuracy.py  precizia reconstructiei pe fantome analitice
 packaging/                  PyInstaller
 tests/                      teste automate

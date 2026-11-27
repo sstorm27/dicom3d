@@ -109,3 +109,41 @@ def test_console_without_romanian_letters_does_not_crash(tmp_path):
     env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+
+
+def test_catalog_dialog_lists_and_opens_series(app, phantom_dir, tmp_path):
+    from dicom3d.catalog import Catalog
+    from dicom3d.catalog.indexer import index_folder
+    from dicom3d.ui.catalog_dialog import CatalogDialog
+
+    cat = Catalog(tmp_path / "catalog.sqlite")
+    uid = index_folder(cat, phantom_dir, region="torace")[0]
+    dlg = CatalogDialog(cat)
+    assert dlg.table.rowCount() == 1
+    assert dlg.selected_uid == uid
+    assert dlg.open_btn.isEnabled()
+    assert "1 pacienți" in dlg.stats_label.text()
+    assert dlg.download_btn.isVisible() or not dlg.isVisible()
+    dlg.search.setText("nu-exista")
+    assert dlg.table.rowCount() == 0 and not dlg.open_btn.isEnabled()
+    dlg.search.setText("")
+    dlg._open()
+    assert dlg.result() == QtWidgets.QDialog.Accepted
+
+
+def test_main_window_opens_series_from_catalog(app, phantom_dir):
+    import time
+
+    from dicom3d.catalog.indexer import index_folder
+    from dicom3d.ui.main_window import MainWindow
+
+    w = MainWindow()
+    uid = index_folder(w.catalog(), phantom_dir)[0]
+    w.open_catalog_series(uid)
+    deadline = time.time() + 30
+    while w.volume is None and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert w.volume is not None
+    assert "Serii proprii" in w.series_title.text()
+    w.view3d.close_vtk()

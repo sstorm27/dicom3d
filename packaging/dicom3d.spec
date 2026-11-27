@@ -8,7 +8,8 @@ a = Analysis(
     ["launcher.py"],
     pathex=["../src"],
     hiddenimports=hidden,
-    datas=[("../src/dicom3d/ui/assets", "dicom3d/ui/assets")],  # fonturile interfetei
+    datas=[("../src/dicom3d/ui/assets", "dicom3d/ui/assets"),  # fonturile interfetei
+           ("../src/dicom3d/catalog/colectii_tcia.json", "dicom3d/catalog")],  # seriile TCIA
     excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
               # segmentarea AI ruleaza din sursa (pip install dicom3d[ai]): PyTorch are ~1 GB
               "torch", "totalsegmentator", "nnunetv2"],
