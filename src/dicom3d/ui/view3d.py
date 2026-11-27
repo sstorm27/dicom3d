@@ -78,6 +78,7 @@ class View3D(QWidget):
         """Se apeleaza dupa ce fereastra e afisata (cerinta VTK pe Windows)."""
         self.vtk_widget.Initialize()
         self.vtk_widget.Start()
+        self._initialized = True
 
     def has_mesh(self) -> bool:
         return self._actor is not None
@@ -158,7 +159,9 @@ class View3D(QWidget):
         return QImage(arr.data, w, h, arr.strides[0], fmt).copy().save(path)
 
     def render(self):
-        self.vtk_widget.GetRenderWindow().Render()
+        # inainte de initialize() (fereastra neafisata inca) randarea VTK cade pe Windows
+        if getattr(self, "_initialized", False):
+            self.vtk_widget.GetRenderWindow().Render()
 
     def close_vtk(self):
         self._cam_anim.stop()

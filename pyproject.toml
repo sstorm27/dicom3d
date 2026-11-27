@@ -22,6 +22,7 @@ ai = ["TotalSegmentator>=2.4"]
 
 [project.scripts]
 dicom3d-cli = "dicom3d.cli:main"
+dicom3d-db = "dicom3d.catalog.cli:main"
 
 [project.gui-scripts]
 dicom3d = "dicom3d.app:main"
@@ -31,6 +32,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "dicom3d.ui" = ["assets/fonts/*.ttf", "assets/fonts/OFL.txt"]
+"dicom3d.catalog" = ["colectii_tcia.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

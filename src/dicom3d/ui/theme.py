@@ -193,6 +193,15 @@ QComboBox QAbstractItemView, QListView { background: @INK2; border: 1px solid @L
 QLineEdit { background: @INK2; border: 1px solid @LINE_STRONG; border-radius: 2px; padding: 0 10px;
             min-height: 30px; selection-background-color: @TEXT; selection-color: @INK0; }
 QLineEdit:focus { border-color: @TEXT; }
+#catalogTable { background: @INK1; border: 1px solid @LINE; gridline-color: transparent;
+                selection-background-color: @INK3; selection-color: @TEXT; }
+#catalogTable::item { padding: 0 10px; border-bottom: 1px solid @LINE_SOFT; }
+#catalogTable::item:selected { background: @INK3; color: @TEXT; }
+QHeaderView { background: @INK1; border: none; }
+QHeaderView::section { background: @INK1; color: @MUTED; border: none; border-bottom: 1px solid @LINE_STRONG;
+                       padding: 0 10px; min-height: 30px; font-weight: 500; }
+QHeaderView::section:hover { color: @TEXT; }
+#catalogSource { background: @INK2; border: 1px solid @LINE; border-radius: 2px; }
 QMenu { background: @INK2; border: 1px solid @LINE_STRONG; padding: 4px; }
 QMenu::item { padding: 6px 14px; }
 QMenu::item:selected { background: @INK3; }

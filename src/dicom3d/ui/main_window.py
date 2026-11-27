@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from dicom3d import __version__
+from dicom3d.catalog import Catalog, SeriesRow
 from dicom3d.data import Label, SeriesInfo, Volume
 from dicom3d.io.dicom_loader import find_series, load_series
 from dicom3d.mesh.surface import MeshOptions, export_mesh
@@ -198,6 +199,11 @@ class MainWindow(QMainWindow):
             lay.addWidget(w, 0, Qt.AlignVCenter)
         lay.addWidget(self.series_meta, 1)
 
+        self.catalog_btn = QPushButton(" Bază de date")
+        self.catalog_btn.setProperty("variant", "ghost")
+        self.catalog_btn.setIcon(icons.icon("database"))
+        self.catalog_btn.setToolTip("Alege o serie din baza de date cu studii CT (Ctrl+B)")
+        self.catalog_btn.clicked.connect(self.open_catalog)
         self.open_btn = QPushButton(" Deschide serie")
         self.open_btn.setProperty("variant", "ghost")
         self.open_btn.setIcon(icons.icon("folder"))
@@ -207,7 +213,7 @@ class MainWindow(QMainWindow):
         self.export_btn.setIcon(icons.icon("export"))
         self.export_btn.setToolTip("Salvează modelul afișat ca STL, OBJ sau PLY (Ctrl+E)")
         self.export_btn.clicked.connect(self.export_model)
-        for b in (self.open_btn, self.export_btn):
+        for b in (self.catalog_btn, self.open_btn, self.export_btn):
             b.setIconSize(QSize(16, 16))
             b.setCursor(Qt.PointingHandCursor)
             lay.addWidget(b)
@@ -460,6 +466,7 @@ class MainWindow(QMainWindow):
             return a
 
         act("Deschide", QKeySequence.Open, lambda: self.open_folder())
+        act("Bază de date", "Ctrl+B", self.open_catalog)
         self.export_act = act("Exportă", "Ctrl+E", self.export_model)
         self.build_act = act("Generează", "Ctrl+G", self.build_model)
         act("Resetează camera", "R", self.view3d.reset_camera)
@@ -543,8 +550,51 @@ class MainWindow(QMainWindow):
                 self._set_status("Nicio serie aleasă.", "idle")
                 return
             chosen = series[labels.index(text)]
+        self._catalog_row = None
         self._set_busy(True, f"Încarc {chosen.num_files} felii…")
-        self._run(load_series, chosen, on_done=self._on_volume_loaded)
+        self._run(self._load_and_catalog, chosen, on_done=self._on_volume_loaded)
+
+    def catalog(self) -> Catalog:
+        if getattr(self, "_catalog", None) is None:
+            self._catalog = Catalog()
+        return self._catalog
+
+    def _load_and_catalog(self, series: SeriesInfo) -> Volume:
+        """Incarca seria si o trece in baza de date, ca data viitoare sa fie in lista."""
+        volume = load_series(series)
+        try:
+            from dicom3d.catalog.download import known_series
+            from dicom3d.catalog.indexer import index_files
+
+            index_files(self.catalog(), series.files, known=known_series())
+        except Exception:  # noqa: BLE001 - baza de date nu are voie sa impiedice incarcarea
+            import traceback
+
+            traceback.print_exc()
+        return volume
+
+    def open_catalog(self):
+        if self._busy:
+            return
+        from dicom3d.ui.catalog_dialog import CatalogDialog
+
+        try:
+            dlg = CatalogDialog(self.catalog(), self)
+        except Exception as exc:  # noqa: BLE001 - ex. folderul bazei de date nu se poate crea
+            self._on_error(f"Nu pot deschide baza de date: {exc}")
+            return
+        if dlg.exec() and dlg.selected_uid:
+            self.open_catalog_series(dlg.selected_uid)
+
+    def open_catalog_series(self, series_uid: str):
+        row = self.catalog().get(series_uid)
+        if row is None:
+            return
+        self._catalog_row = row
+        self._folder = row.folder
+        self._set_busy(True, f"Încarc {row.patient_key} ({row.num_instances} felii)…")
+        self._run(lambda: load_series(self.catalog().series_info(series_uid)),
+                  on_done=self._on_volume_loaded)
 
     def _on_volume_loaded(self, volume: Volume):
         self.volume = volume
@@ -562,6 +612,10 @@ class MainWindow(QMainWindow):
         sx, sy, sz = volume.spacing
         info = volume.info
         desc = (info.description if info else "") or "Serie fără descriere"
+        row: SeriesRow | None = getattr(self, "_catalog_row", None)
+        if row is not None:  # din baza de date: pacientul si colectia spun mai mult
+            desc = f"{row.patient_key} · {row.collection_name}" + (
+                f" · {row.description}" if row.description else "")
         modality = info.modality if info and info.modality else "?"
         meta = (f"{x} × {y} × {z}  ·  {fmt_num(sx, 2)} × {fmt_num(sy, 2)} × {fmt_num(sz, 2)} mm  ·  "
                 f"{fmt_hu(volume.array.min())} … {fmt_hu(volume.array.max())} HU")
@@ -804,6 +858,7 @@ class MainWindow(QMainWindow):
         self.export_act.setEnabled(can_export)
         self.shot_btn.setEnabled(not busy and self.result is not None)
         self.open_btn.setEnabled(not busy)
+        self.catalog_btn.setEnabled(not busy)
         if busy:
             self.busy_bar.start()
             self.setCursor(Qt.BusyCursor)
